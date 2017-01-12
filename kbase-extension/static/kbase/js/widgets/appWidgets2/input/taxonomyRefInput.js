@@ -78,7 +78,6 @@ define([
         }
 
         function setControlValue(value) {
-            // console.log('setting control value', value);
             var stringValue;
             if (value === null) {
                 stringValue = '';
@@ -91,6 +90,9 @@ define([
             // NB id used as String since we are comparing it below to the actual dom
             // element id
             // var currentSelectionId = String(model.availableValuesMap[stringValue]);
+
+            // var currentSelectionId = String(model.availableValuesMap[stringValue]);
+
 
             $(control).val(value).trigger('change.select2');
         }
@@ -120,8 +122,6 @@ define([
             return Promise.try(function() {
                 var value = getControlValue();
 
-                // console.log('value', value);
-
                 return {
                     isValid: true,
                     validated: true,
@@ -136,7 +136,6 @@ define([
         function doChange() {
             validate()
                 .then(function(result) {
-                    // console.log('validated??', result);
                     if (result.isValid) {
                         model.value = result.parsedValue;
                         channel.emit('changed', {
@@ -155,8 +154,12 @@ define([
                 });
         }
 
+        function autoChange(value) {
+            setControlValue(value);
+            doChange();
+        }
+
         function doTemplateResult(item) {
-            // console.log('template', item);
             if (!item.id) {
                 return $(div({
                     style: {
@@ -215,14 +218,12 @@ define([
                 }])
                 .then(function(result) {
                     var elapsed = new Date().getTime() - start;
-                    console.log('Loaded data ' + result[0].hits.length + ' items of ' + result[0].num_of_hits + ' in ' + elapsed + 'ms');
                     totalItems = result[0].num_of_hits;
                     return result[0];
                 })
         }
 
         function getTaxonomyItem(taxonObject) {
-            // console.log('get taxonomy', taxonObject);
             var ref = taxonObject,
                 taxonClient = new GenericClient({
                     url: runtime.config('services.service_wizard.url'),
@@ -268,7 +269,6 @@ define([
                         }
                         getTaxonomyItem(currentValue)
                             .then(function(taxon) {
-                                // console.log('TAXON', taxon);
                                 callback(taxon);
                             });
                     },
@@ -277,7 +277,6 @@ define([
                     },
                     language: {
                         loadingMore: function(arg) {
-                            // console.log('ARG', arg);
                             return html.loading('Loading more scientific names');
                         }
                     },
@@ -292,7 +291,6 @@ define([
                             };
                         },
                         processResults: function(data, params) {
-                            // console.log('processing', data, params);
                             params.page = params.page || 1;
                             return {
                                 results: data.hits,
@@ -313,7 +311,6 @@ define([
                                     status = 'error';
                                     failure();
                                 });
-                            // console.log('transport got ', options);
 
                             return {
                                 status: status
@@ -375,9 +372,9 @@ define([
                 container.innerHTML = theLayout.content;
                 events.attachEvents(container);
 
-                if (config.initialValue !== undefined) {
-                    model.value = config.initialValue;
-                }
+                // if (config.initialValue !== undefined) {
+                //     model.value = config.initialValue;
+                // }
 
                 render()
                     .then(function() {
@@ -393,8 +390,9 @@ define([
                         // });
                         // bus.emit('sync');
 
-                        setControlValue(getModelValue());
-                        autoValidate();
+                        //setControlValue(getModelValue());
+                        //autoValidate();
+                        autoChange(config.initialValue);
                     });
             });
         }

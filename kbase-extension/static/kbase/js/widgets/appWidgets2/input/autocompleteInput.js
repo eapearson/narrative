@@ -19,7 +19,7 @@ define([
     'typeahead',
     'bootstrap',
     'css!font-awesome'
-], function(
+], function (
     $,
     Promise,
     Bloodhound,
@@ -62,8 +62,10 @@ define([
             return ui.getElement('autocomplete-container.input').value;
         }
 
+        // MODEL
+
         function setModelValue(value) {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 if (model.value !== value) {
                     model.value = value;
                     channel.emit('changed', {
@@ -77,10 +79,18 @@ define([
             model.value = spec.data.defaultValue;
         }
 
+        // CONTROL  
+
+        function setControlValue(value) {
+            channel.emit('changed', {
+                newValue: value
+            });
+        }
+
         // VALIDATION
 
         function validate(rawValue) {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 if (rawValue === undefined) {
                     rawValue = getInputValue();
                 }
@@ -90,7 +100,7 @@ define([
 
         function autoValidate() {
             return validate()
-                .then(function(result) {
+                .then(function (result) {
                     channel.emit('validation', {
                         errorMessage: result.errorMessage,
                         diagnosis: result.diagnosis
@@ -98,12 +108,17 @@ define([
                 });
         }
 
+        function autoChange(value) {
+            setControlValue(value);
+            doChanged();
+        }
+
 
         // DOM EVENTS
 
-        function handleChange(newValue) {
+        function doChanged(newValue) {
             validate(newValue)
-                .then(function(result) {
+                .then(function (result) {
                     if (result.isValid) {
                         setModelValue(result.parsedValue);
                         syncModelToControl();
@@ -162,7 +177,7 @@ define([
         function render() {
             var ic_id;
 
-            Promise.try(function() {
+            Promise.try(function () {
                     var events = Events.make(),
                         inputControl = makeInputControl(model.value, events);
                     ui.setContent('autocomplete-container', inputControl);
@@ -172,8 +187,8 @@ define([
                     ic_id = $(ui.getElement('autocomplete-container.input')).attr('id');
                     events.attachEvents(container);
                 })
-                .then(function() {
-                    setTimeout(function() {
+                .then(function () {
+                    setTimeout(function () {
                         var genericClient = new GenericClient(Config.url('service_wizard'), {
                             token: Runtime.make().authToken()
                         });
@@ -184,24 +199,22 @@ define([
                             // `states` is an array of state names defined in "The Basics"
                             remote: {
                                 url: 'http://kbase.us/some/fake/url', //bloodhound remote requires a URL
-                                filter: function(query, settings) {
+                                filter: function (query, settings) {
                                     return query.hits;
                                 },
-                                prepare: function(settings) {
+                                prepare: function (settings) {
                                     return settings;
                                 },
-                                transport: function(options, onSuccess, onError) {
-                                    console.log('transport', options);
+                                transport: function (options, onSuccess, onError) {
                                     genericClient.sync_call("taxonomy_service.search_taxonomy", [{
                                         private: 0,
                                         public: 1,
                                         search: options.url,
                                         limit: 10,
                                         start: 0
-                                    }]).then(function(d) {
-                                        console.log('success', d);
+                                    }]).then(function (d) {
                                         onSuccess(d[0]);
-                                    }).catch(function(e) {
+                                    }).catch(function (e) {
                                         onError(e);
                                     });
                                 }
@@ -216,11 +229,11 @@ define([
                         }, {
                             name: 'states',
                             source: dog,
-                            display: function(v) {
+                            display: function (v) {
                                 return v.label
                             }
                         });
-                        $control.bind('typeahead:select', function(e, suggestion) {
+                        $control.bind('typeahead:select', function (e, suggestion) {
                             // NB for 'select' event it is the suggestion object,
                             // for 'change' it is the display value as defined above.
                             // e.g. 
@@ -229,9 +242,8 @@ define([
                             // label: "Klebsiella sp. ok1_1_9_S34"
                             // parent: "Klebsiella"
                             // parent_ref: "1779/139747/1"
-                            console.log('suggestion', suggestion);
 
-                            handleChange(suggestion.id);
+                            doChanged(suggestion.id);
                         });
                     }, 1);
                     return autoValidate();
@@ -257,7 +269,7 @@ define([
                     ignoreErrors: 1,
                     no_data: 0
                 })
-                .then(function(result) {
+                .then(function (result) {
                     return result[0];
                 });
         }
@@ -271,8 +283,7 @@ define([
                         objectRef
                     ]
                 }])
-                .then(function(result) {
-                    console.log('HERE', result);
+                .then(function (result) {
                     return result[0];
                 })
         }
@@ -285,7 +296,7 @@ define([
                 token: Runtime.make().authToken()
             });
             return taxonClient.callFunc('get_scientific_name', [objectRef])
-                .then(function(result) {
+                .then(function (result) {
                     if (result.length === 0) {
                         throw new Error('Cannot find taxon: ' + objectRef);
                     }
@@ -298,7 +309,7 @@ define([
 
         // Call this whenever you need the state of the model to be reflected in the control.
         function syncModelToControl() {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 var modelValue;
 
                 if (model.value === undefined) {
@@ -315,10 +326,8 @@ define([
                     ui.getElement('autocomplete-container.input').value = '';
                     return null;
                 }
-                console.log('syncing', modelValue);
                 return getScientificName(modelValue)
-                    .then(function(scientificName) {
-                        console.log('sci name', scientificName);
+                    .then(function (scientificName) {
                         $(places.autocompleteControl).typeahead('val', scientificName);
                         // $(ui.getElement('autocomplete-container.input')).val(scientificName);
                         // ui.getElement('autocomplete-container.input').value = scientificName;
@@ -331,7 +340,7 @@ define([
         // LIFECYCLE API
 
         function start(arg) {
-            return Promise.try(function() {
+            return Promise.try(function () {
                     parent = arg.node;
                     container = parent.appendChild(document.createElement('div'));
                     ui = UI.make({ node: arg.node });
@@ -340,25 +349,28 @@ define([
                     container.innerHTML = layout(events);
                     events.attachEvents(container);
 
-                    setModelValue(config.initialValue);
+                    // setModelValue(config.initialValue);
 
-                    channel.on('reset-to-defaults', function() {
+                    channel.on('reset-to-defaults', function () {
                         resetModelValue();
                     });
-                    channel.on('update', function(message) {
+                    channel.on('update', function (message) {
                         setModelValue(message.value);
                     });
 
                     // bus.emit('sync');
-                    return render();
-                })
-                .then(function() {
-                    return syncModelToControl();
+                    return render()
+                        .then(function () {
+                            return autoChange(config.initialValue);
+                        });
                 });
+                // .then(function () {
+                //     return syncModelToControl();
+                // });
         }
 
         function stop() {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 if (container) {
                     parent.removeChild(container);
                 }
@@ -373,7 +385,7 @@ define([
     }
 
     return {
-        make: function(config) {
+        make: function (config) {
             return factory(config);
         }
     };

@@ -10,7 +10,7 @@ define([
 
     'bootstrap',
     'css!font-awesome'
-], function(
+], function (
     Promise,
     html,
     Events,
@@ -81,20 +81,25 @@ define([
         // VALIDATION
 
         function validate(value) {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 return Validation.validate(value, spec);
             });
         }
 
         function autoValidate() {
             return validate(model.getItem('value'))
-                .then(function(result) {
+                .then(function (result) {
                     channel.emit('validation', result);
                 });
         }
 
+        function autoChange(value) {
+            setControlValue(value);
+            doChanged();
+        }
+
         function importControlValue() {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 return Validation.importString(getControlValue());
             });
         }
@@ -112,10 +117,10 @@ define([
             var editPauseInterval = interval || 100;
             return {
                 type: 'keyup',
-                handler: function(e) {
+                handler: function (e) {
                     channel.emit('touched');
                     cancelTouched();
-                    autoChangeTimer = window.setTimeout(function() {
+                    autoChangeTimer = window.setTimeout(function () {
                         autoChangeTimer = null;
                         e.target.dispatchEvent(new Event('change'));
                     }, editPauseInterval);
@@ -123,48 +128,52 @@ define([
             };
         }
 
+        function doChanged() {
+            importControlValue()
+                .then(function (value) {
+                    model.setItem('value', value);
+                    channel.emit('changed', {
+                        newValue: value
+                    });
+                    return validate(value);
+                })
+                .then(function (result) {
+                    if (result.isValid) {
+                        if (config.showOwnMessages) {
+                            ui.setContent('input-container.message', '');
+                        }
+                    } else if (result.diagnosis === 'required-missing') {
+                        // nothing??
+                    } else {
+                        if (config.showOwnMessages) {
+                            // show error message -- new!
+                            var message = inputUtils.buildMessageAlert({
+                                title: 'ERROR',
+                                type: 'danger',
+                                id: result.messageId,
+                                message: result.errorMessage
+                            });
+                            ui.setContent('input-container.message', message.content);
+                            message.events.attachEvents();
+                        }
+                    }
+                    channel.emit('validation', result);
+                })
+                .catch(function (err) {
+                    channel.emit('validation', {
+                        isValid: false,
+                        diagnosis: 'invalid',
+                        errorMessage: err.message
+                    });
+                });
+        }
+
         function handleChanged() {
             return {
                 type: 'change',
-                handler: function() {
+                handler: function () {
                     cancelTouched();
-                    importControlValue()
-                        .then(function(value) {
-                            model.setItem('value', value);
-                            channel.emit('changed', {
-                                newValue: value
-                            });
-                            return validate(value);
-                        })
-                        .then(function(result) {
-                            if (result.isValid) {
-                                if (config.showOwnMessages) {
-                                    ui.setContent('input-container.message', '');
-                                }
-                            } else if (result.diagnosis === 'required-missing') {
-                                // nothing??
-                            } else {
-                                if (config.showOwnMessages) {
-                                    // show error message -- new!
-                                    var message = inputUtils.buildMessageAlert({
-                                        title: 'ERROR',
-                                        type: 'danger',
-                                        id: result.messageId,
-                                        message: result.errorMessage
-                                    });
-                                    ui.setContent('input-container.message', message.content);
-                                    message.events.attachEvents();
-                                }
-                            }
-                            channel.emit('validation', result);
-                        })
-                        .catch(function(err) {
-                            channel.emit('validation', {
-                                isValid: false,
-                                diagnosis: 'invalid',
-                                errorMessage: err.message
-                            });
-                        });
+                    doChanged();
                 }
             };
         }
@@ -199,7 +208,7 @@ define([
         }
 
         function render() {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 var events = Events.make(),
                     inputControl = makeInputControl(model.getItem('value'), events);
 
@@ -225,7 +234,7 @@ define([
         // LIFECYCLE API
 
         function start(arg) {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 parent = arg.node;
                 container = parent.appendChild(document.createElement('div'));
                 ui = UI.make({ node: container });
@@ -237,10 +246,10 @@ define([
                 events.attachEvents(container);
                 // model.setItem('value', message.value);
 
-                channel.on('reset-to-defaults', function() {
+                channel.on('reset-to-defaults', function () {
                     resetModelValue();
                 });
-                channel.on('update', function(message) {
+                channel.on('update', function (message) {
                     model.setItem('value', message.value);
                 });
 
@@ -249,15 +258,17 @@ define([
                 // in which the initial value is known to be available.
                 // bus.emit('sync');
 
+
+
                 return render()
-                    .then(function() {
-                        return autoValidate();
+                    .then(function () {
+                        return autoChange(config.initialValue);
                     });
             });
         }
 
         function stop() {
-            return Promise.try(function() {
+            return Promise.try(function () {
                 if (container) {
                     parent.removeChild(container);
                 }
@@ -271,10 +282,10 @@ define([
             data: {
                 value: spec.data.nullValue
             },
-            onUpdate: function() {}
+            onUpdate: function () {}
         });
 
-        setModelValue(config.initialValue);
+        // setModelValue(config.initialValue);
 
         return {
             start: start,
@@ -283,7 +294,7 @@ define([
     }
 
     return {
-        make: function(config) {
+        make: function (config) {
             return factory(config);
         }
     };
