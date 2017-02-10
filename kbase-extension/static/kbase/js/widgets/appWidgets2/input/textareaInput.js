@@ -5,6 +5,7 @@ define([
     'common/events',
     'common/ui',
     'common/props',
+    'common/runtime',
     '../inputUtils',
     'bootstrap',
     'css!font-awesome'
@@ -15,6 +16,7 @@ define([
     Events,
     UI,
     Props,
+    Runtime,
     inputUtils) {
     'use strict';
 
@@ -26,7 +28,10 @@ define([
     function factory(config) {
         var spec = config.parameterSpec,
             parent, container,
-            bus = config.bus,
+            runtime = Runtime.make(),
+            // bus = config.bus,
+            busConnection = runtime.bus().connect(),
+            channel = busConnection.channel(config.channelName),
             model = {
                 value: undefined
             },
@@ -91,7 +96,7 @@ define([
         function autoValidate() {
             return validate(model.getItem('value'))
                 .then(function(result) {
-                    bus.emit('validation', result);
+                    channel.emit('validation', result);
                 });
         }
 
@@ -109,7 +114,7 @@ define([
             return {
                 type: 'keyup',
                 handler: function(e) {
-                    bus.emit('touched');
+                    channel.emit('touched');
                     cancelTouched();
                     autoChangeTimer = window.setTimeout(function() {
                         autoChangeTimer = null;
@@ -127,7 +132,7 @@ define([
                     importControlValue()
                         .then(function(value) {
                             model.setItem('value', value);
-                            bus.emit('changed', {
+                            channel.emit('changed', {
                                 newValue: value
                             });
                             return validate(value);
@@ -152,10 +157,10 @@ define([
                                     message.events.attachEvents();
                                 }
                             }
-                            bus.emit('validation', result);
+                            channel.emit('validation', result);
                         })
                         .catch(function(err) {
-                            bus.emit('validation', {
+                            channel.emit('validation', {
                                 isValid: false,
                                 diagnosis: 'invalid',
                                 errorMessage: err.message
@@ -210,10 +215,10 @@ define([
                 container.innerHTML = theLayout.content;
                 events.attachEvents(container);
 
-                bus.on('reset-to-defaults', function() {
+                channel.on('reset-to-defaults', function() {
                     resetModelValue();
                 });
-                bus.on('update', function(message) {
+                channel.on('update', function(message) {
                     setModelValue(message.value);
                 });
                 // bus.emit('sync');
@@ -224,6 +229,7 @@ define([
 
         function stop() {
             return Promise.try(function() {
+                busConnection.stop();
                 if (parent && container) {
                     parent.removeChild(container);
                 }

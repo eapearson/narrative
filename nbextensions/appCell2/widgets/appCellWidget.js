@@ -18,7 +18,6 @@ define([
     'common/ui',
     'common/fsm',
     'common/cellUtils',
-    'common/busEventManager',
     'common/format',
     'common/spec',
     'common/semaphore',
@@ -29,6 +28,8 @@ define([
     './tabs/resultsTab',
     './tabs/logTab',
     './tabs/errorTab',
+    './tabs/configure/configureTab',
+    './tabs/viewConfigure/viewConfigureTab',
     './runClock',
     'css!google-code-prettify/prettify.css',
     'css!font-awesome.css'
@@ -52,7 +53,6 @@ define([
     UI,
     Fsm,
     cellUtils,
-    BusEventManager,
     format,
     Spec,
     Semaphore,
@@ -63,6 +63,8 @@ define([
     resultsTabWidget,
     logTabWidget,
     errorTabWidget,
+    configureTabWidget,
+    viewConfigureTabWidget,
     RunClock
 ) {
     'use strict';
@@ -87,21 +89,16 @@ define([
             workspaceInfo = config.workspaceInfo,
             runtime = Runtime.make(),
             cell = config.cell,
-            parentBus = config.bus,
-            // TODO: the cell bus should be created and managed through main.js,
-            // that is, the extension.
-            cellBus = runtime.bus().makeChannelBus({
+            busConnection = runtime.bus().connect(),
+            // This is the main bus for this widget.
+            widgetBus = busConnection.channel(null),
+            cellBus = busConnection.channel({
                 name: {
                     cell: utils.getMeta(cell, 'attributes', 'id')
                 },
                 description: 'A cell channel'
             }),
-            bus = runtime.bus().makeChannelBus({
-                description: 'A app cell widget'
-            }),
-            busEventManager = BusEventManager.make({
-                bus: runtime.bus()
-            }),
+            globalBus = busConnection.channel(),
             model,
             spec,
             // HMM. Sync with metadata, or just keep everything there?
@@ -172,217 +169,27 @@ define([
 
         // NEW - TABS
 
-        function pRequire(module) {
-            return new Promise(function (resolve, reject) {
-                require(module, function () {
-                    resolve(arguments);
-                }, function (err) {
-                    reject(err);
-                });
-            });
-        }
-
-        function loadParamsWidget(arg) {
-            return pRequire(['./appParamsWidget'])
-                .spread(function (Widget) {
-                    // TODO: widget should make own bus.
-                    var bus = runtime.bus().makeChannelBus({ description: 'Parent comm bus for input widget' }),
-                        widget = Widget.make({
-                            bus: bus,
-                            workspaceInfo: workspaceInfo,
-                            initialParams: model.getItem('params')
-                        });
-
-                    bus.on('sync-params', function (message) {
-                        message.parameters.forEach(function (paramId) {
-                            bus.send({
-                                parameter: paramId,
-                                value: model.getItem(['params', message.parameter])
-                            }, {
-                                key: {
-                                    type: 'update',
-                                    parameter: message.parameter
-                                }
-                            });
-                        });
-                    });
-
-                    bus.on('parameter-sync', function (message) {
-                        var value = model.getItem(['params', message.parameter]);
-                        bus.send({
-                            //                            parameter: message.parameter,
-                            value: value
-                        }, {
-                            // This points the update back to a listener on this key
-                            key: {
-                                type: 'update',
-                                parameter: message.parameter
-                            }
-                        });
-                    });
-
-                    bus.on('set-param-state', function (message) {
-                        model.setItem('paramState', message.id, message.state);
-                    });
-
-                    bus.respond({
-                        key: {
-                            type: 'get-param-state'
-                        },
-                        handle: function (message) {
-                            return {
-                                state: model.getItem('paramState', message.id)
-                            }
-                        }
-                    });
-
-                    bus.respond({
-                        key: {
-                            type: 'get-parameter'
-                        },
-                        handle: function (message) {
-                            return {
-                                value: model.getItem(['params', message.parameterName])
-                            };
-                        }
-                    });
-
-                    bus.on('parameter-changed', function (message) {
-                        // TODO: should never get these in the following states....
-
-                        var state = fsm.getCurrentState().state;
-                        if (state.mode === 'editing') {
-                            model.setItem(['params', message.parameter], message.newValue);
-                            evaluateAppState();
-                        } else {
-                            console.warn('parameter-changed event detected when not in editing mode - ignored');
-                        }
-                    });
-
-                    return widget.start({
-                            node: arg.node,
-                            appSpec: model.getItem('app.spec'),
-                            parameters: spec.getSpec().parameters
-                        })
-                        .then(function () {
-                            return {
-                                bus: bus,
-                                instance: widget
-                            };
-                        });
-                });
-        }
-
-        function loadViewParamsWidget(arg) {
-            return pRequire(['./appParamsViewWidget'])
-                .spread(function (Widget) {
-                    // TODO: widget should make own bus.
-                    var bus = runtime.bus().makeChannelBus({ description: 'Parent comm bus for input widget' }),
-                        widget = Widget.make({
-                            bus: bus,
-                            workspaceInfo: workspaceInfo,
-                            initialParams: model.getItem('params')
-                        });
-
-                    bus.on('sync-params', function (message) {
-                        message.parameters.forEach(function (paramId) {
-                            bus.send({
-                                parameter: paramId,
-                                value: model.getItem(['params', message.parameter])
-                            }, {
-                                key: {
-                                    type: 'update',
-                                    parameter: message.parameter
-                                }
-                            });
-                        });
-                    });
-
-                    bus.on('parameter-sync', function (message) {
-                        var value = model.getItem(['params', message.parameter]);
-                        bus.send({
-                            //                            parameter: message.parameter,
-                            value: value
-                        }, {
-                            // This points the update back to a listener on this key
-                            key: {
-                                type: 'update',
-                                parameter: message.parameter
-                            }
-                        });
-                    });
-
-                    bus.on('set-param-state', function (message) {
-                        model.setItem('paramState', message.id, message.state);
-                    });
-
-                    bus.respond({
-                        key: {
-                            type: 'get-param-state'
-                        },
-                        handle: function (message) {
-                            return {
-                                state: model.getItem('paramState', message.id)
-                            };
-                        }
-                    });
-
-                    bus.respond({
-                        key: {
-                            type: 'get-parameter'
-                        },
-                        handle: function (message) {
-                            return {
-                                value: model.getItem(['params', message.parameterName])
-                            };
-                        }
-                    });
-
-                    bus.on('parameter-changed', function (message) {
-                        // TODO: should never get these in the following states....
-
-                        var state = fsm.getCurrentState().state;
-                        if (state.mode === 'editing') {
-                            model.setItem(['params', message.parameter], message.newValue);
-                            evaluateAppState();
-                        } else {
-                            console.warn('parameter-changed event detected when not in editing mode - ignored');
-                        }
-                    });
-
-                    return widget.start({
-                            node: arg.node,
-                            appSpec: model.getItem('app.spec'),
-                            parameters: spec.getSpec().parameters
-                        })
-                        .then(function () {
-                            return {
-                                bus: bus,
-                                instance: widget
-                            };
-                        });
-                });
-        }
-
         function configureWidget() {
             function factory(config) {
                 var container,
                     widget;
-
                 function start(arg) {
                     container = arg.node;
-                    return loadParamsWidget({
-                            node: container
-                        })
-                        .then(function (result) {
-                            widget = result;
-                        });
-
+                    widget = configureTabWidget.make({
+                        node: container,
+                        model: model,
+                        fsm: fsm,
+                        parameters: spec.getSpec().parameters,
+                        workspaceInfo: workspaceInfo,
+                        bus: widgetBus
+                    });
+                    return widget.start();
                 }
 
                 function stop() {
                     return Promise.try(function () {
                         if (widget) {
+                            widget.bus.connection.stop();
                             return widget.instance.stop();
                         }
                     });
@@ -408,17 +215,21 @@ define([
 
                 function start(arg) {
                     container = arg.node;
-                    return loadViewParamsWidget({
-                            node: container
-                        })
-                        .then(function (result) {
-                            widget = result;
-                        });
+                    widget = viewConfigureTabWidget.make({
+                        node: container,
+                        model: model,
+                        fsm: fsm,
+                        parameters: spec.getSpec().parameters,
+                        workspaceInfo: workspaceInfo,
+                        bus: widgetBus
+                    });
+                    return widget.start();
                 }
 
                 function stop() {
                     return Promise.try(function () {
                         if (widget) {
+                            widget.bus.connection.stop();
                             return widget.instance.stop();
                         }
                     });
@@ -483,6 +294,10 @@ define([
             return controlBarTabs.selectedTab.widget.start({
                 node: node,
                 model: model
+            })
+            .catch(function (err) {
+                console.error('Error starting tab', err);
+                throw err;
             });
         }
 
@@ -1013,7 +828,7 @@ define([
             }).filter(function (x) {
                 return x ? true : false;
             });
-            bus.on('control-panel-tab', function (message) {
+            widgetBus.on('control-panel-tab', function (message) {
                 var tab = message.data.tab;
                 toggleTab(tab);
             });
@@ -1142,12 +957,12 @@ define([
                                     classes: ['kb-panel-container'],
                                     body: div({ dataElement: 'content' })
                                 }),
-                                ui.buildCollapsiblePanel({
+                                ui.buildPanel({
                                     title: 'Notifications',
                                     name: 'notifications',
-                                    hidden: true,
+                                    hidden: false,
                                     type: 'default',
-                                    classes: ['kb-panel-container'],
+                                    classes: ['kb-panel-light'],
                                     body: [
                                         div({ dataElement: 'content' })
                                     ]
@@ -1398,30 +1213,45 @@ define([
             renderNotifications();
         }
 
+        function doShowNotifications() {
+            ui.showElement('');
+        }
+
+        function hideNotifications() {
+            ui.hideElement('notifications');
+        }
+
+        function showNotifications() {
+            ui.showElement('notifications');
+        }
+
         function renderNotifications() {
             var events = Events.make(),
                 notifications = model.getItem('notifications') || [],
                 content;
 
             if (notifications.length === 0) {
+                hideNotifications();
                 content = span({ style: { fontStyle: 'italic' } }, 'There are currently no notifications');
             } else {
                 content = notifications.map(function (notification, index) {
                     return div({ class: 'row' }, [
-                        div({ class: 'col-md-10' }, notification),
-                        div({ class: 'col-md-2', style: { textAlign: 'right' } }, span({}, [
-                            a({
-                                class: 'btn btn-default',
-                                id: events.addEvent({
-                                    type: 'click',
-                                    handler: function () {
+                        div({ class: 'col-md-12' }, [
+                            ui.buildAlert({
+                                type: notification.type,
+                                content: notification.message,
+                                dismissable: true,
+                                events: events,
+                                on: {
+                                    close: function () {
                                         doRemoveNotification(index);
                                     }
-                                })
-                            }, 'X')
-                        ]))
+                                }
+                            })
+                        ])
                     ]);
                 }).join('\n');
+                ui.showElement('notifications');
             }
             ui.setContent('notifications.content', content);
             events.attachEvents(container);
@@ -1447,7 +1277,7 @@ define([
         function renderUI() {
             showFsmBar();
             renderNotifications();
-            renderSettings();
+            // renderSettings();
             var state = fsm.getCurrentState();
             if (model.getItem('outdated')) {
                 ui.showElement('outdated');
@@ -1759,18 +1589,18 @@ define([
 
             // TODO: if we don't use this, we should remove it.
             // Save this to the exec state change log.
-            var execLog = model.getItem('exec.log');
-            if (!execLog) {
-                execLog = [];
-            }
-            execLog.push({
-                timestamp: new Date(),
-                event: 'execute-requested',
-                data: {
-                    runId: 'should be here'
-                }
-            });
-            model.setItem('exec.log', execLog);
+            // var execLog = model.getItem('exec.log');
+            // if (!execLog) {
+            //     execLog = [];
+            // }
+            // execLog.push({
+            //     timestamp: new Date(),
+            //     event: 'execute-requested',
+            //     data: {
+            //         runId: 'should be here'
+            //     }
+            // });
+            // model.setItem('exec.log', execLog);
 
             cell.execute();
         }
@@ -1791,7 +1621,7 @@ define([
                 container = hostNode.appendChild(document.createElement('div'));
                 ui = UI.make({
                     node: container,
-                    bus: bus
+                    bus: widgetBus
                 });
 
                 // TODO: better place/way to do this:
@@ -1819,11 +1649,34 @@ define([
             });
         }
 
+        function handleJobDoesNotExist(message) {
+            // issue warning alert
+            var notification = div({}, [
+                p('The app cell has been automatically Reset -- the original job is no longer accessible'),
+                p([
+                    'An app cell\'s previously run jobs are associated with the Narrative within which it was run. ',
+                    'No other Narrative may access information about those jobs.', 
+                    'When a Narrative is copied, any existing jobs will not be associated with the new Narrative created ',
+                    'by the copy.'
+                ])
+                // p('The job id was ' + message.jobId)
+            ]);
+            addNotification({
+                message: notification,
+                type: 'warning'
+            });
+            // reset the app cell.
+            resetToEditMode();
+        }
+
         var jobListeners = [];
 
         function startListeningForJobMessages(jobId) {
             var ev;
 
+            // Note: we use a custom array of listeners just for job messages 
+            // so that we can unsubscribe them when we don't need to listen any
+            // longer.
             ev = runtime.bus().listen({
                 channel: {
                     jobId: jobId
@@ -1841,23 +1694,10 @@ define([
                             model.setItem('exec.outputWidgetInfo', outputWidgetInfo);
                         }
 
-                        var execLog = model.getItem('exec.log');
-                        if (!execLog) {
-                            execLog = [];
-                        }
-                        execLog.push({
-                            timestamp: new Date(),
-                            event: 'job-status',
-                            data: {
-                                jobState: newJobState
-                            }
-                        });
-                        model.setItem('exec.log', execLog);
-
                         // Now we send the job state on the cell bus, generally.
                         // The model is that a cell can only have one job active at a time.
                         // Thus we can just emit the state of the current job globally
-                        // on the cell bus for thos widgets interested.
+                        // on the cell bus for those widgets interested.
                         cellBus.emit('job-state', {
                             jobState: newJobState
                         });
@@ -1871,6 +1711,17 @@ define([
 
                     updateFromJobState(newJobState);
                 }
+            });
+            jobListeners.push(ev);
+
+            ev = runtime.bus().listen({
+                channel: {
+                    jobId: jobId
+                },
+                key: {
+                    type: 'job-does-not-exist'
+                },
+                handle: handleJobDoesNotExist
             });
             jobListeners.push(ev);
 
@@ -2117,14 +1968,14 @@ define([
 
             // If so, is the cell still there?
             if (outputCellId) {
-                outputCell = cellUtils.findById(outputCellId);
-                if (outputCell) {
-                    return;
-                }
-                notification = div([
-                    div('Output cell not found: ' + outputCellId + '. Would you like to recreate it? ')
-                ]);
-                addNotification(notification);
+                // outputCell = cellUtils.findById(outputCellId);
+                // if (outputCell) {
+                //     return;
+                // }
+                // notification = div([
+                //     div('Output cell not found: ' + outputCellId + '. Would you like to recreate it? ')
+                // ]);
+                // addNotification(notification);
                 return;
             }
 
@@ -2295,6 +2146,8 @@ define([
                 });
         }
 
+        
+
         function start() {
             return Semaphore.make().when('comm', 'ready', Config.get('comm_wait_timeout'))
                 .then(function () {
@@ -2323,23 +2176,23 @@ define([
 
                     // APP CELL EVENTS
 
-                    busEventManager.add(bus.on('toggle-code-view', function () {
+                    widgetBus.on('toggle-code-view', function () {
                         var showing = toggleCodeInputArea(),
                             label = showing ? 'Hide Code' : 'Show Code';
                         ui.setButtonLabel('toggle-code-view', label);
-                    }));
-                    busEventManager.add(bus.on('show-notifications', function () {
+                    });
+                    widgetBus.on('show-notifications', function () {
                         // TODO: re-enable notifications
-                        // doShowNotifications();
-                    }));
-                    busEventManager.add(bus.on('edit-cell-metadata', function () {
+                        doShowNotifications();
+                    });
+                    widgetBus.on('edit-cell-metadata', function () {
                         doEditCellMetadata();
-                    }));
-                    busEventManager.add(bus.on('edit-notebook-metadata', function () {
+                    });
+                    widgetBus.on('edit-notebook-metadata', function () {
                         doEditNotebookMetadata();
-                    }));
+                    });
 
-                    busEventManager.add(bus.on('toggle-settings', function () {
+                    widgetBus.on('toggle-settings', function () {
                         var showing = toggleSettings(cell),
                             label = span({ class: 'fa fa-cog ' }),
                             buttonNode = ui.getButton('toggle-settings');
@@ -2349,27 +2202,32 @@ define([
                         } else {
                             buttonNode.classList.remove('active');
                         }
-                    }));
-                    busEventManager.add(bus.on('actionButton', function (message) {
+                    });
+                    widgetBus.on('actionButton', function (message) {
                         doActionButton(message.data);
-                    }));
-                    busEventManager.add(bus.on('run-app', function () {
+                    });
+                    widgetBus.on('run-app', function () {
                         doRun();
-                    }));
-                    busEventManager.add(bus.on('re-run-app', function () {
+                    });
+                    widgetBus.on('re-run-app', function () {
                         doRerun();
-                    }));
-                    busEventManager.add(bus.on('cancel', function () {
+                    });
+                    widgetBus.on('cancel', function () {
                         doCancel();
-                    }));
-                    busEventManager.add(bus.on('remove', function () {
+                    });
+                    widgetBus.on('remove', function () {
                         doRemove();
-                    }));
+                    });
 
+                    // TODO: app state change should trigger this automatically??? 
+                    widgetBus.on('app-state-changed', function () {
+                        evaluateAppState();
+                    });
 
-                    busEventManager.add(parentBus.on('reset-to-defaults', function () {
-                        bus.emit('reset-to-defaults');
-                    }));
+                    // Reset has been disabled in the UI
+                    // widgetBus.on('reset-to-defaults', function () {
+                    //     bus.emit('reset-to-defaults');
+                    // });
 
                     var state = model.getItem('fsm.currentState');
                     if (state) {
@@ -2377,50 +2235,51 @@ define([
                         case 'editing':
                             break;
                         case 'processing':
-                            switch (state.stage) {
-                            case 'launched':
-                            case 'queued':
-                            case 'running':
-                                startListeningForJobMessages(model.getItem('exec.jobState.job_id'));
-                                requestJobStatus(model.getItem('exec.jobState.job_id'));
-                                break;
-                            }
-                            break;
+                            // switch (state.stage) {
+                            // case 'launched':
+                            // case 'queued':
+                            // case 'running':
+                            // break;
                         case 'success':
                         case 'error':
+                        case 'canceled':
+                            startListeningForJobMessages(model.getItem('exec.jobState.job_id'));
+                            // requestJobStatus(model.getItem('exec.jobState.job_id'));
+                            break;
+
                             // do nothing for now
                         }
                     }
 
                     // TODO: only turn this on when we need it!
-                    busEventManager.add(cellBus.on('run-status', function (message) {
+                    cellBus.on('run-status', function (message) {
                         updateFromLaunchEvent(message);
 
                         model.setItem('exec.launchState', message);
 
                         // Save this to the exec state change log.
-                        model.pushItem('exec.log', {
-                            timestamp: new Date(),
-                            event: 'launch-status',
-                            data: {
-                                jobId: message.jobId,
-                                runId: message.runId,
-                                status: message.event
-                            }
-                        });
+                        // model.pushItem('exec.log', {
+                        //     timestamp: new Date(),
+                        //     event: 'launch-status',
+                        //     data: {
+                        //         jobId: message.jobId,
+                        //         runId: message.runId,
+                        //         status: message.event
+                        //     }
+                        // });
 
                         saveNarrative();
 
                         cellBus.emit('launch-status', {
                             launchState: message
                         });
-                    }));
+                    });
 
-                    busEventManager.add(cellBus.on('delete-cell', function () {
+                    cellBus.on('delete-cell', function () {
                         doDeleteCell();
-                    }));
+                    });
 
-                    busEventManager.add(cellBus.on('output-cell-removed', function (message) {
+                    cellBus.on('output-cell-removed', function (message) {
                         var output = model.getItem('output');
 
                         if (!output.byJob[message.jobId]) {
@@ -2433,11 +2292,11 @@ define([
                             jobState: model.getItem('exec.jobState'),
                             output: output
                         });
-                    }));
+                    });
 
-                    busEventManager.add(runtime.bus().on('read-only-changed', function (msg) {
+                    globalBus.on('read-only-changed', function (msg) {
                         toggleReadOnlyMode(msg.readOnly);
-                    }));
+                    });
 
                     // Initialize display
                     showCodeInputArea();
@@ -2448,7 +2307,7 @@ define([
 
         function stop() {
             return Promise.try(function () {
-                busEventManager.removeAll();
+                busConnection.stop();
             });
         }
 
@@ -2529,7 +2388,7 @@ define([
                 })
                 .catch(function (err) {
                     alert('internal error'),
-                        console.error('INTERNAL ERROR', err);
+                    console.error('INTERNAL ERROR', err);
                 });
         }
 
@@ -2632,7 +2491,10 @@ define([
                 .catch(function (err) {
                     var error = ToErr.grokError(err);
                     console.error('ERROR loading main widgets', error);
-                    addNotification('Error loading main widgets: ' + error.message);
+                    addNotification({
+                        message: p('Error loading main widgets: ' + error.message),
+                        type: 'danger'
+                    });
 
                     model.setItem('fatalError', {
                         title: 'Error loading main widgets',

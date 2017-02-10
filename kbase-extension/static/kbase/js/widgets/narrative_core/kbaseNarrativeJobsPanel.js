@@ -212,20 +212,17 @@ define([
 
             // Fetches job status from kernel.
             bus.on('request-job-status', function (message) {
-                //console.log('requesting job status for ' + message.jobId);
                 this.sendCommMessage(this.JOB_STATUS, message.jobId);
             }.bind(this));
 
             // Requests job status updates for this job via the job channel, and also
             // ensures that job polling is running.
             bus.on('request-job-update', function (message) {
-                //console.log('requesting job updates for ' + message.jobId);
                 this.sendCommMessage(this.START_JOB_UPDATE, message.jobId);
             }.bind(this));
 
             // Tells kernel to stop including a job in the lookup loop.
             bus.on('request-job-completion', function (message) {
-                //console.log('cancelling job updates for ' + message.jobId);
                 this.sendCommMessage(this.STOP_JOB_UPDATE, message.jobId);
             }.bind(this));
 
@@ -282,13 +279,11 @@ define([
         handleCommMessages: function (msg) {
             var msgType = msg.content.data.msg_type;
             var msgData = msg.content.data.content;
-            // console.log('COMM', msgType, msg);
+            // uncomment me for diagnostics: console.log('COMM', msgType, msg);
             switch (msgType) {
             case 'start':
-                // console.log('START', msgData.time);
                 break;
             case 'new_job':
-                // this.registerKernelJob(msg.content.data.content);
                 Jupyter.notebook.save_checkpoint();
                 break;
                 /*
@@ -298,15 +293,14 @@ define([
                  * cache, but the reverse logic does not apply.
                  */
             case 'job_status':
-                var jobStateMessage = msg.content.data.content,
-                    jobId = jobStateMessage.state.job_id;
+                var jobId = msgData.state.job_id;
                 // We could just copy the entire message into the job
                 // states cache, but referencing each individual property
                 // is more explicit about the structure.
                 this.jobStates[jobId] = {
-                    state: jobStateMessage.state,
-                    spec: jobStateMessage.spec,
-                    widgetParameters: jobStateMessage.widget_info
+                    state: msgData.state,
+                    spec: msgData.spec,
+                    widgetParameters: msgData.widget_info
                 };
 
                 /*
@@ -315,8 +309,8 @@ define([
                  */
                 this.sendJobMessage('job-status', jobId, {
                     jobId: jobId,
-                    jobState: jobStateMessage.state,
-                    outputWidgetInfo: jobStateMessage.widget_info
+                    jobState: msgData.state,
+                    outputWidgetInfo: msgData.widget_info
                 });
                 this.populateJobsPanel(); //status, info, content);
                 break;
@@ -367,7 +361,6 @@ define([
                  * This would signal a "job-deleted" message.
                  * Although it could be the case that a+++
                  */
-                // NB: this implies that t
                 Object.keys(this.jobStates).forEach(function (jobId) {
                     if (!incomingJobs[jobId]) {
                         // If ths job is not found in the incoming list of all
@@ -417,23 +410,20 @@ define([
                 break;
 
             case 'job_logs':
-                var jobId = msg.content.data.content.job_id;
-
-                this.sendJobMessage('job-logs', jobId, {
-                    jobId: jobId,
-                    logs: msg.content.data.content,
-                    latest: msg.content.data.content.latest
+                this.sendJobMessage('job-logs', msgData.job_id, {
+                    jobId: msgData.job_id,
+                    logs: msgData,
+                    latest: msgData.latest
                 });
                 break;
 
             case 'job_comm_error':
-                var content = msg.content.data.content;
-                if (content) {
+                if (msgData) {
                     switch (content.request_type) {
                     case 'delete_job':
                         var modal = new BootstrapDialog({
                             title: 'Job Deletion Error',
-                            body: $('<div>').append('<b>An error occurred while deleting your job:</b><br>' + content.message),
+                            body: $('<div>').append('<b>An error occurred while deleting your job:</b><br>' + msgData.message),
                             buttons: [
                                 $('<a type="button" class="btn btn-default">')
                                 .append('OK')
@@ -449,33 +439,33 @@ define([
                         break;
                     case 'cancel_job':
                         this.sendJobMessage('job-cancel-error', content.job_id, {
-                            jobId: content.job_id,
-                            message: content.message
+                            jobId: msgData.job_id,
+                            message: msgData.message
                         });
                         break;
                     case 'job_logs':
                         this.sendJobMessage('job-log-deleted', content.job_id, { 
-                            jobId: content.job_id,
-                            message: content.message
+                            jobId: msgData.job_id,
+                            message: msgData.message
                         });
                         break;
                     case 'job_logs_latest':
                         this.sendJobMessage('job-log-deleted', content.job_id, { 
-                            jobId: content.job_id,
-                            message: content.message
+                            jobId: msgData.job_id,
+                            message: msgData.message
                         });
                         break;
                     case 'job_status':
                         this.sendJobMessage('job-status-error', content.job_id, {
-                            jobId: content.job_id,
-                            message: content.message
+                            jobId: msgData.job_id,
+                            message: msgData.message
                         });
                         break;
                     default:
-                        this.sendJobMessage('job-error', content.job_id, {
-                            jobId: content.job_id,
-                            message: content.message,
-                            request: content.requestType
+                        this.sendJobMessage('job-error', msgData.job_id, {
+                            jobId: msgData.job_id,
+                            message: msgData.message,
+                            request: msgData.requestType
                         });
                         break;
                     }
@@ -484,9 +474,8 @@ define([
                 break;
 
             case 'job_init_partial_err':
-                var content = msg.content.data.content;
-                var jobErrors = content.job_errors;
-                for (var jobId in jobErrors) {
+                var jobErrors = msgData.job_errors;
+                for (var jobId in msgData.job_errors) {
                     if (jobErrors.hasOwnProperty(jobId)) {
                         this.sendJobMessage('job-status', jobId, {
                             jobId: jobId,
@@ -495,8 +484,7 @@ define([
                         });
                     }
                 }
-                console.warn('Job initialization in kernel resulted in errors!');
-                console.warn(msg);
+                console.warn('Job initialization in kernel resulted in errors!', msg);
                 break;
 
             case 'job_init_err':
@@ -512,7 +500,7 @@ define([
                     buttons: [
                         $('<a type="button" class="btn btn-default">')
                         .append('OK')
-                        .click(function (event) {
+                        .click(function () {
                             modal.hide();
                         })
                     ]
@@ -567,7 +555,6 @@ define([
                     // exists. If so, we do some funny business to create a
                     // new client side for it, register it, and set up our
                     // handler on it.
-                    //console.log(new Date().getTime() + ' : Initializing comm channel');
 
                     Jupyter.notebook.kernel.comm_info(_this.COMM_NAME, function (msg) {
                         if (msg.content && msg.content.comms) {

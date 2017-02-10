@@ -773,18 +773,33 @@ define([
         function connect() {
             var listeners = [];
 
-            function channel(channelName) {
-
+            function channel(channelDef) {
+                var channelName;
                 // Without a channel name, we use the main bus.
-                if (channelName === null) {
+                if (channelDef === null) {
                     channelName = new Uuid(4).format();
-                } else if (channelName === undefined) {
+                    channelDef = {
+                        name: channelName
+                    };
+                } else if (channelDef === undefined) {
                     channelName = 'default';
+                    channelDef = {
+                        name: channelName
+                    };
+                } else if (typeof channelDef === 'object') {
+                    channelName = channelDef.name;
+                } else if (typeof channelDef === 'string') {
+                    channelName = channelDef;
+                    channelDef = {
+                        name: channelName
+                    };
+                } else {
+                    throw new Error('Invalid channel definition', channelDef);
                 }
 
-                var localChannel = makeChannelBus({
-                    name: channelName
-                });
+                console.log('channel in connection', channelName, channelDef);
+
+                var localChannel = makeChannelBus(channelDef);
 
                 function on() {
                     var l = localChannel.on.apply(null, arguments);
@@ -801,7 +816,7 @@ define([
                 }
 
                 function send() {
-                    localChannel.emit.apply(null, arguments);
+                    localChannel.send.apply(null, arguments);
                 }
 
                 function respond() {
@@ -846,7 +861,8 @@ define([
                     set: set,
                     get: get,
                     when: when,
-                    stats: stats
+                    stats: stats,
+                    connection: connection
                 };
             }
 
@@ -862,7 +878,7 @@ define([
                     listeners: {
                         active: listeners.length
                     }
-                }
+                };
             }
 
             function genName() {
@@ -875,7 +891,7 @@ define([
             }
 
 
-            return {
+            var connection = {
                 channel: channel,
                 genName: genName,
                 stats: stats,
@@ -883,6 +899,7 @@ define([
                 // global listeners, etc.
                 listen: connectionListen
             };
+            return connection;
         }
 
 

@@ -17,6 +17,7 @@ define([
     'kbaseReportView',
     'common/runtime',
     'common/semaphore',
+    'common/ui',
     'text!kbase/templates/job_status/status_table.html',
     'text!kbase/templates/job_status/header.html',
     'text!kbase/templates/job_status/log_panel.html',
@@ -40,6 +41,7 @@ define([
     KBaseReportView,
     Runtime,
     Semaphore,
+    UI,
     JobStatusTableTemplate,
     HeaderTemplate,
     LogPanelTemplate,
@@ -92,7 +94,7 @@ define([
             this.cell = findCell();
             this.cell.element.trigger('hideCodeArea.cell');
             if (!this.jobId) {
-                this.showError("No Job id provided!");
+                this.showError('No Job id provided!');
                 return this;
             }
             this.runtime = Runtime.make();
@@ -147,6 +149,17 @@ define([
                         },
                         handle: function (message) {
                             this.handleJobLogDeleted(message);
+                        }.bind(this)
+                    });
+                    this.busConnection.listen({
+                        channel: {
+                            jobId: this.jobId
+                        },
+                        key: {
+                            type: 'job-does-not-exist'
+                        },
+                        handle: function (message) {
+                            this.handleJobDoesNotExist(message);
                         }.bind(this)
                     });
 
@@ -422,16 +435,19 @@ define([
 
         handleJobStatus: function (message) {
             // stop listeneing for job state if completed...
-            if (message.jobState.job_state === 'completed') {
+            switch (message.jobState.job_state) {
+            case 'suspend':
+            case 'completed':
                 this.channel.emit('request-job-completion', {
                     jobId: this.jobId
                 });
-                // TODO: we need to remove all of the job listeners at this point, but 
-                // the busConnection also has the job log listeners, which may be used at any time.
-                // What we need to do is move these into separate widgets which can be stopped and started
-                // as the tabs are activated, and control their own bus connections.
-                // this.busConnection.stop();
+                break;
             }
+            // TODO: we need to remove all of the job listeners at this point, but 
+            // the busConnection also has the job log listeners, which may be used at any time.
+            // What we need to do is move these into separate widgets which can be stopped and started
+            // as the tabs are activated, and control their own bus connections.
+            // this.busConnection.stop();
             this.state = message.jobState;
             this.outputWidgetInfo = message.outputWidgetInfo;
             this.setCellState();
@@ -449,6 +465,17 @@ define([
 
         handleJobLogDeleted: function (message) {
             this.showLogMessage('Job has been deleted. No log available.');
+        },
+
+        handleJobDoesNotExist: function (message) {
+            var ui = UI.make({
+                node: this.$elem.get(0)
+            });
+            var alert = ui.buildAlert({
+                type: 'warning',
+                content: 'The job does not exist. No job status or logs are available.'
+            });
+            this.$elem.html(alert);
         },
 
         showError: function (message) {
@@ -540,7 +567,7 @@ define([
             // $logsPanel.find('#kblog-panel').scroll(function(e) {
             //     console.log('scrolling happened!');
             // });
-            $logsPanel.find("#kblog-header")
+            $logsPanel.find('#kblog-header')
                 .children()
                 .tooltip()
                 .on('click', function (e) { 
@@ -571,13 +598,13 @@ define([
         },
 
         showLogMessage: function (message) {
-            this.logsView.find("#kblog-msg").html(message);
+            this.logsView.find('#kblog-msg').html(message);
         },
 
         updateLogs: function (logs) {
             this.pendingLogRequest = false;
             if (logs.max_lines > this.maxLogLines) {
-                this.showLogMessage("Showing lines " + (logs.first + 1) + " to " + (logs.first + logs.lines.length) + " of " + logs.max_lines);
+                this.showLogMessage('Showing lines ' + (logs.first + 1) + ' to ' + (logs.first + logs.lines.length) + ' of ' + logs.max_lines);
             }
             if (logs.first === null || logs.first === undefined || !logs.lines) {
                 return;

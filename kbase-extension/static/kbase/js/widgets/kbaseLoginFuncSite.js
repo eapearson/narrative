@@ -316,7 +316,7 @@ define([
             this.registerLogin =
                 function (args) {
                     var setUsernameField = function (name, id) {
-                        this.data('loggedinuser_id').text(name)
+                        this.data('loggedinuser_id').html(name + '<br><span style="font-style: italic;">' + id + '</span>')
                             .attr('href', '/#people/' + id)
                             .click();
                     }.bind(this);

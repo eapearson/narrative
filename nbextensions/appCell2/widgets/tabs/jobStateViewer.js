@@ -49,7 +49,7 @@ define([
     function updateRunStats(ui, viewModel, jobState) {
         if (!jobState) {
             viewModel.launch._attrib.hidden = false;
-            viewModel.launch.label = 'Launching...';
+            viewModel.launch.label = '';
         } else {
             var now = new Date().getTime();
 
@@ -364,6 +364,14 @@ define([
             }
         }
 
+        function handleJobDeleted(message) {
+            console.log('DELETED', message);
+        }
+
+        function handleJobDoesNotExist(message) {
+            console.log('JOB DOES NOT EXIST', message);
+        }
+
         function listenForJobStatus() {
             var ev = runtime.bus().listen({
                 channel: {
@@ -373,6 +381,26 @@ define([
                     type: 'job-status'
                 },
                 handle: handleJobStatusUpdate
+            });
+            listeners.push(ev);
+            ev = runtime.bus().listen({
+                channel: {
+                    jobId: jobId
+                },
+                key: {
+                    type: 'job-deleted'
+                },
+                handle: handleJobDeleted
+            });
+            listeners.push(ev);
+            ev = runtime.bus().listen({
+                channel: {
+                    jobId: jobId
+                },
+                key: {
+                    type: 'job-does-not-exist'
+                },
+                handle: handleJobDoesNotExist
             });
             listeners.push(ev);
         }

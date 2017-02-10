@@ -399,7 +399,7 @@ define([
                 events = arg.events,
                 icon,
                 title = arg.title || arg.tip || arg.label,
-                attribs;;
+                attribs;
 
             if (arg.icon) {
                 if (!arg.icon.classes) {
@@ -1177,6 +1177,45 @@ define([
             ]);
         }
 
+        function buildAlert(arg) {
+            var div = t('div'),
+                button = t('button'),
+                span = t('span');
+
+            var classes = ['alert'];
+            if (arg.type) {
+                classes.push('alert-' + arg.type);
+            } else {
+                classes.push('alert-info');
+            }
+
+            var dismissButton;
+            if (arg.dismissable) {
+                classes.push('alert-dismissable');
+                dismissButton = button({
+                    type: 'button',
+                    class: 'close',
+                    dataDismissx: 'alert',
+                    ariaLabel: 'Close',
+                    id: arg.events.addEvent({
+                        type: 'click',
+                        handler: arg.on.close
+                    })
+                }, [
+                    span({
+                        ariaHidden: 'true'
+                    }, '&times;')
+                ]);
+            }
+
+            return div({
+                class: classes
+            }, [
+                dismissButton,
+                arg.content
+            ]);
+        }
+
         return Object.freeze({
             getElement: getElement,
             getElements: getElements,
@@ -1224,7 +1263,8 @@ define([
             buildPresentableJson: buildPresentableJson,
             buildErrorTabs: buildErrorTabs,
             htmlEncode: htmlEncode,
-            loading: loading
+            loading: loading,
+            buildAlert: buildAlert
         });
     }
 
