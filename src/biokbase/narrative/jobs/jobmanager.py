@@ -61,9 +61,7 @@ class JobManager(object):
         4. start the status lookup loop.
         """
 
-        the_time = int(round(time.time() * 1000))
-
-        self._send_comm_message('start', {'time': the_time})
+        start_time = int(round(time.time() * 1000))
 
         ws_id = system_variable('workspace_id')
         try:
@@ -168,12 +166,12 @@ class JobManager(object):
             }
             self._send_comm_message(err_type, error)
 
-        self._send_comm_message('debug', {
-            'message': 'initialized jobs',
-            'data': {
-                'jobs': map(lambda job: job['job'].state(), _all_jobs),
-            }
-        })
+        # self._send_comm_message('debug', {
+        #     'message': 'initialized jobs',
+        #     'data': {
+        #         'jobs': map(lambda job: job['job'].state(), _all_jobs),
+        #     }
+        # })
 
         if not self._running_lookup_loop and start_lookup_thread:
             # only keep one loop at a time in case this gets called again!
@@ -183,6 +181,19 @@ class JobManager(object):
             self._start_job_status_loop()
         else:
             self._lookup_all_job_status()
+
+        # TODO: remove this dependency
+        # explanation: The front end code uses the call to this method to 
+        # "jumpstart" the kbase comm channel. But that only happens if a
+        # message is sent through it.
+
+        finish_time = int(round(time.time() * 1000))
+
+        self._send_comm_message('info', {
+            'message': 'job manager initialize_jobs completed',
+            'time': start_time, 
+            'elapsed': finish_time - start_time})
+
 
     def list_jobs(self):
         """
@@ -474,16 +485,16 @@ class JobManager(object):
         # Then send job state out to the listening service, i.e. front end.
         notified_jobs = self._notify_job_listeners()
 
-        self._send_comm_message('debug', {
-            'message': 'lookup job status loop',
-            'refreshed': map(lambda job: job.state(), refreshed_jobs),
-            'notified': notified_jobs})
+        # self._send_comm_message('debug', {
+        #     'message': 'lookup job status loop',
+        #     'refreshed': map(lambda job: job.state(), refreshed_jobs),
+        #     'notified': notified_jobs})
 
-        # Automatically stop when there are no more jobs needing an update, i.e. 
-        # they are all finished.
+        # Stop when there are no more jobs needing an update, i.e. 
+        # they are all finished and no-one is listening.
         if len(refreshed_jobs) == 0 and len(notified_jobs) == 0:
-            self._send_comm_message('debug', {
-                'message': 'lookup job status loop cancelling loop'})
+            # self._send_comm_message('debug', {
+            #     'message': 'lookup job status loop cancelling loop'})
             self.cancel_job_lookup_loop()
         else:
             self._lookup_timer = threading.Timer(10, self._lookup_job_status_loop)
@@ -583,8 +594,9 @@ class JobManager(object):
 
             elif r_type == 'start_job_update':
                 if job_id is not None:
-                    self._all_jobs[job_id]['listeners'] += 1
-                    self._start_job_status_loop()
+                    if job_id in self._all_jobs:
+                        self._all_jobs[job_id]['listeners'] += 1
+                        self._start_job_status_loop()
 
             elif r_type == 'delete_job':
                 if job_id is not None:
@@ -802,3 +814,4 @@ class JobManager(object):
         if job.is_finished():
             self._completed_job_states[job_id] = dict(state)
         return dict(state)
+
