@@ -279,8 +279,10 @@ define([
         handleCommMessages: function (msg) {
             var msgType = msg.content.data.msg_type;
             var msgData = msg.content.data.content;
-            // uncomment me for diagnostics: console.log('COMM', msgType, msg);
+            // uncomment me for diagnostics: console.log('COMM', msgType, msgData);
             switch (msgType) {
+            case 'debug':
+                break;
             case 'start':
                 break;
             case 'new_job':
