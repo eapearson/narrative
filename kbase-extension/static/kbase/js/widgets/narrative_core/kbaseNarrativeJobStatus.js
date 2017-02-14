@@ -18,6 +18,7 @@ define([
     'common/runtime',
     'common/semaphore',
     'common/ui',
+    'kb_common/html',
     'text!kbase/templates/job_status/status_table.html',
     'text!kbase/templates/job_status/header.html',
     'text!kbase/templates/job_status/log_panel.html',
@@ -42,6 +43,7 @@ define([
     Runtime,
     Semaphore,
     UI,
+    html,
     JobStatusTableTemplate,
     HeaderTemplate,
     LogPanelTemplate,
@@ -68,12 +70,25 @@ define([
 
         init: function (options) {
             this._super(options);
-            this.jobId = this.options.jobId;
-            this.state = this.options.state;
-            this.outputWidgetInfo = this.options.outputWidgetInfo;
+
+            // First time called? In that case, we bootstrap from the arguments passed
+            // in (and built on the back end). Otherwise, the jobId and previous state
+            // is in the metadata.
+            if (this.cell.metadata.kbase &&
+                this.cell.metadata.kbase.jobState) {
+                this.state = this.getCellState();
+                this.jobId = this.state.job_id;                
+            } else {
+                this.jobId = this.options.jobId;
+                this.outputWidgetInfo = this.options.outputWidgetInfo;
+            }
+
+            // this.state = this.options.state;
             // expects:
             // name, id, version for appInfo
             this.appInfo = this.options.info;
+
+            // Now hook into the Cell.
 
             var cellNode = this.$elem.closest('.cell').get(0);
 
@@ -93,6 +108,7 @@ define([
 
             this.cell = findCell();
             this.cell.element.trigger('hideCodeArea.cell');
+
             if (!this.jobId) {
                 this.showError('No Job id provided!');
                 return this;
@@ -111,9 +127,24 @@ define([
                 this.state = cellState;
             }
 
+            this.initializeView();
+
+            console.log('STATE?', this.state, this.cell.metadata);
+
+            if (this.state) {
+                // render up the panel's view layer.
+                console.log('about to initialize view', this.state, this.cell.metadata);
+                this.updateView();
+            } else {
+                // TODO: get the initial job state with a query back to the 
+                // back end.
+            }
+
+
+
             this.busConnection = this.runtime.bus().connect();
             this.channel = this.busConnection.channel();
-
+            
             Semaphore.make().when('comm', 'ready', Config.get('comm_wait_timeout'))
                 .then(function () {
                     this.busConnection.listen({
@@ -174,9 +205,7 @@ define([
             // TODO: can we introduce a stop method for kbwidget?
             // We need to disconnect these listeners when this widget is removed.
 
-            // render up the panel's view layer.
-            this.initializeView();
-            this.updateView();
+
 
             return this;
         },
@@ -190,10 +219,13 @@ define([
             var header = this.makeHeader();
             var body = this.makeBody();
             var statusPanel = this.makeJobStatusPanel();
+            var alertPanel = this.makeAlertPanel();
             this.$elem.append(header);
+            this.$elem.append(alertPanel);
             body.append(statusPanel);
             this.view = {
                 header: header,
+                alertPanel: alertPanel,
                 statusPanel: statusPanel,
                 body: body
             };
@@ -203,21 +235,21 @@ define([
             var $tabDiv = $('<div>');
             this.tabController = new KBaseTabs($tabDiv, {
                 tabs: [{
-                        tab: 'Status',
-                        content: body,
-                    },
-                    {
-                        tab: 'Logs',
-                        content: this.logsView
-                    }
-                    // {
-                    //     tab: 'Report',
-                    //     content: this.reportView
-                    // },
-                    // {
-                    //     tab: 'New Data Objects',
-                    //     content: this.newDataView
-                    // }
+                    tab: 'Status',
+                    content: body
+                },
+                {
+                    tab: 'Logs',
+                    content: this.logsView
+                }
+                // {
+                //     tab: 'Report',
+                //     content: this.reportView
+                // },
+                // {
+                //     tab: 'New Data Objects',
+                //     content: this.newDataView
+                // }
                 ]
             });
             this.$elem.append($tabDiv);
@@ -414,6 +446,12 @@ define([
             return $(tmpl(this.appInfo));
         },
 
+        makeAlertPanel: function () {
+            var div = html.tag('div');
+            return $(div({
+            }));
+        },
+
         getCellState: function () {
             var metadata = this.cell.metadata;
             if (metadata.kbase && metadata.kbase.state) {
@@ -425,12 +463,13 @@ define([
 
         setCellState: function () {
             var metadata = this.cell.metadata;
-            metadata['kbase'] = {
+            metadata.kbase = {
                 type: 'output',
                 jobId: this.jobId,
                 state: this.state
             };
-            this.cell.metadata = metadata;
+            // console.log('setting cell metadata', metadata, JSON.parse(JSON.stringify(metadata)));
+            this.cell.metadata = JSON.parse(JSON.stringify(metadata));
         },
 
         handleJobStatus: function (message) {
@@ -471,11 +510,69 @@ define([
             var ui = UI.make({
                 node: this.$elem.get(0)
             });
-            var alert = ui.buildAlert({
-                type: 'warning',
-                content: 'The job does not exist. No job status or logs are available.'
-            });
-            this.$elem.html(alert);
+            var t = html.tag,
+                div = t('div'),
+                p = t('p');
+
+            // Cannot show the 
+
+
+            // get most recent job state
+            var jobState = this.state;
+            var alert;
+
+            if (jobState === null) {
+                alert = ui.buildAlert({
+                    type: 'warning',
+                    content: div([
+                        p([
+                            'The job associated with this Cell can no longer be accessed.'
+                        ])
+                    ])
+                });
+            } else {
+                switch (jobState.job_state) {
+                case 'queued':
+                case 'in-progress':
+                    alert = ui.buildAlert({
+                        type: 'warning',
+                        content: div([
+                            p([
+                                'The job associated with this Cell can no longer be accessed, and was saved while running.'
+                            ]),
+                            p([
+                                'This can happen when a Narrative has been copied while a Job Cell is running.', 
+                                'Since the new Narrative does not have access to the job in the original Narrative, it cannot ',
+                                'show additional information about it, nor will the data object created appear in the ',
+                                'new narrative.'
+                            ])
+                        ])
+                    });
+                    break;
+                case 'completed':
+                case 'canceled':
+                case 'suspend':
+                    alert = ui.buildAlert({
+                        type: 'warning',
+                        content: div([
+                            p([
+                                'The job associated with this Cell can no longer be accessed.', jobState.job_state
+                            ]),
+                            p([
+                                'You can access the final job state, but not the job logs.'
+                            ])
+                        ])
+                    });
+                    break;
+                default: 
+                    throw new Error('Invalid job state: ' + jobState.job_state);
+                }
+            }
+
+            // if empty, queued, or in-progress, replace the display with the message.
+
+            // if completed, error, or canceled show the state
+            this.view.alertPanel.html(alert);
         },
 
         showError: function (message) {
@@ -485,6 +582,10 @@ define([
         updateJobStatusPanel: function () {
             var elapsedQueueTime;
             var elapsedRunTime;
+
+            if (!this.state) {
+                return;
+            }
 
             if (!this.state.creation_time) {
                 elapsedQueueTime = '-';
@@ -521,6 +622,7 @@ define([
                 info.execRunTime = TimeFormat.calcTimeDifference(this.state.finish_time, this.state.exec_start_time);
             }
 
+            console.log('updating job status panel', this.state);
             return $(this.statusTableTmpl(info));
         },
 
