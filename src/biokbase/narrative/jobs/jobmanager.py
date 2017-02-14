@@ -168,8 +168,15 @@ class JobManager(object):
             }
             self._send_comm_message(err_type, error)
 
+        self._send_comm_message('debug', {
+            'message': 'initialized jobs',
+            'data': {
+                'jobs': map(lambda job: job['job'].state(), _all_jobs),
+            }
+        })
+
         if not self._running_lookup_loop and start_lookup_thread:
-            # only keep one loop at a time in cause this gets called again!
+            # only keep one loop at a time in case this gets called again!
             if self._lookup_timer is not None:
                 self._lookup_timer.cancel()
             self._running_lookup_loop = True
@@ -735,6 +742,13 @@ class JobManager(object):
             self._comm.on_msg(self._handle_comm_message)
         self._comm.send(msg)
 
+    #
+    # Fetch the job state for all jobs which are not finished or which are not
+    # in the _completed_job_states list. Note that initially there is nothing in the
+    # completed job states list, so the first time this method is called all jobs
+    # are included and any completed jobs are placed into the completed job states
+    # list. 
+    # 
     def _get_job_states(self, job_ids=None):
         """
         Returns the state for all running jobs with non-terminal states
