@@ -1,6 +1,3 @@
-/*global define*/
-/*jslint white:true,browser:true,nomen:true*/
-
 define([
     'bluebird',
     'uuid',
@@ -112,8 +109,6 @@ define([
                         detail: ''
                     };
                 }
-                console.error('errorTab', viewModel);
-
                 ui.updateFromViewModel(viewModel);
             });
         }
