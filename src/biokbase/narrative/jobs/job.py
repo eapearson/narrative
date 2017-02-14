@@ -115,7 +115,8 @@ class Job(object):
         Queries the job service to see the status of the current job.
         Returns a <something> stating its status. (string? enum type? different traitlet?)
         """
-        if self._last_state is not None and self._last_state.get('finished', 0) == 1:
+        if self._last_state is not None and 
+           (self._last_state.get('finished', 0) == 1 or self._last_state.get('canceled', 0) == 1):
             return self._last_state
         try:
             state = self._njs.check_job(self.job_id)
@@ -219,7 +220,14 @@ class Job(object):
         element.html("<div id='{{elem_id}}' class='kb-vis-area'></div>");
 
         require(['jquery', 'kbaseNarrativeJobStatus'], function($, KBaseNarrativeJobStatus) {
-            new KBaseNarrativeJobStatus($('#{{elem_id}}'), {'jobId': '{{job_id}}', 'state': {{state}}, 'info': {{info}}, 'outputWidgetInfo': {{output_widget_info}}});
+            var state = {{state}};
+            console.log('STATE, from inside', state);
+            new KBaseNarrativeJobStatus($('#{{elem_id}}'), {
+                'jobId': '{{job_id}}', 
+                'state': {{state}}, 
+                'info': {{info}}, 
+                'outputWidgetInfo': {{output_widget_info}}
+            });
         });
         """
         output_widget_info = None
@@ -247,6 +255,6 @@ class Job(object):
             }
         return Template(tmpl).render(job_id=self.job_id,
                                      elem_id='kb-job-{}-{}'.format(self.job_id, uuid.uuid4()),
-                                     # state=json.dumps(state),
+                                     state=json.dumps(state),
                                      info=json.dumps(info),
                                      output_widget_info=json.dumps(output_widget_info))
