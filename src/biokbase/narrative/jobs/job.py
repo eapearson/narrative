@@ -115,8 +115,7 @@ class Job(object):
         Queries the job service to see the status of the current job.
         Returns a <something> stating its status. (string? enum type? different traitlet?)
         """
-        if self._last_state is not None and 
-           (self._last_state.get('finished', 0) == 1 or self._last_state.get('canceled', 0) == 1):
+        if self._last_state is not None and (self._last_state.get('finished', 0) == 1 or self._last_state.get('canceled', 0) == 1):
             return self._last_state
         try:
             state = self._njs.check_job(self.job_id)
