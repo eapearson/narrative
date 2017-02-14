@@ -533,20 +533,6 @@ define([
             });
         }
 
-        // function get(address) {
-        //     return new Promise(function(resolve, reject) {
-        //         console.log('GOT? request with', address);
-        //         listen({
-        //             channel: address.channel,
-        //             key: address.key,
-        //             // once: true,
-        //             timeout: address.timeout || 10000,
-        //             handle: function(message) {
-        //                 resolve(message);
-        //             }
-        //         });
-        //     });
-        // }
         function plisten(spec) {
             var initialized = false;
             var id;
@@ -796,8 +782,6 @@ define([
                 } else {
                     throw new Error('Invalid channel definition', channelDef);
                 }
-
-                console.log('channel in connection', channelName, channelDef);
 
                 var localChannel = makeChannelBus(channelDef);
 
