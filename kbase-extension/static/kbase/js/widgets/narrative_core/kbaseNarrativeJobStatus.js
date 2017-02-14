@@ -58,7 +58,8 @@ define([
         options: {
             jobId: null,
             jobInfo: null,
-            statusText: null
+            statusText: null,
+            state: null
         },
         pendingLogRequest: false, // got a log request pending? (used for keeping log instances separate)
         pendingLogStart: 0, // pending top line number we're expecting.
@@ -71,27 +72,8 @@ define([
         init: function (options) {
             this._super(options);
 
-            // First time called? In that case, we bootstrap from the arguments passed
-            // in (and built on the back end). Otherwise, the jobId and previous state
-            // is in the metadata.
-            if (this.cell.metadata.kbase &&
-                this.cell.metadata.kbase.jobState) {
-                this.state = this.getCellState();
-                this.jobId = this.state.job_id;                
-            } else {
-                this.jobId = this.options.jobId;
-                this.outputWidgetInfo = this.options.outputWidgetInfo;
-            }
-
-            // this.state = this.options.state;
-            // expects:
-            // name, id, version for appInfo
-            this.appInfo = this.options.info;
-
-            // Now hook into the Cell.
-
+            // Hook into the Cell.
             var cellNode = this.$elem.closest('.cell').get(0);
-
             function findCell() {
                 var cells = Jupyter.notebook.get_cell_elements().toArray().filter(function (element) {
                     if (element === cellNode) {
@@ -103,11 +85,24 @@ define([
                     return $(cells[0]).data('cell');
                 }
                 throw new Error('Cannot find the cell node!', cellNode, cells);
-
             }
-
             this.cell = findCell();
             this.cell.element.trigger('hideCodeArea.cell');
+
+            // First time called? In that case, we bootstrap from the arguments passed
+            // in (and built on the back end). Otherwise, the jobId and previous state
+            // is in the metadata.
+            // TODO: we could just get this from a request-job-status call. Would be more
+            // consistent with the status update process. 
+            if (!this.getCellState()) {
+                this.jobId = this.options.jobId;
+                this.state = this.options.state;
+                // expects:
+                // name, id, version for appInfo
+                this.appInfo = this.options.info;
+                this.outputWidgetInfo = this.options.outputWidgetInfo;
+                this.setCellState();
+            }
 
             if (!this.jobId) {
                 this.showError('No Job id provided!');
@@ -115,32 +110,8 @@ define([
             }
             this.runtime = Runtime.make();
 
-            /**
-             * Initial flow.
-             * 1. Check cell for state. If state's job id matches this widget's then use it and ignore other inputs.
-             * 2. If not, use inputs as initial state.
-             * 3. Initialize layout, set up bus.
-             */
-            var cellState = this.getCellState();
-            if (cellState && cellState.jobId === this.jobId) {
-                // use this and not the state input.
-                this.state = cellState;
-            }
-
             this.initializeView();
-
-            console.log('STATE?', this.state, this.cell.metadata);
-
-            if (this.state) {
-                // render up the panel's view layer.
-                console.log('about to initialize view', this.state, this.cell.metadata);
-                this.updateView();
-            } else {
-                // TODO: get the initial job state with a query back to the 
-                // back end.
-            }
-
-
+            this.updateView();
 
             this.busConnection = this.runtime.bus().connect();
             this.channel = this.busConnection.channel();
@@ -205,8 +176,6 @@ define([
             // TODO: can we introduce a stop method for kbwidget?
             // We need to disconnect these listeners when this widget is removed.
 
-
-
             return this;
         },
 
@@ -241,23 +210,16 @@ define([
                 {
                     tab: 'Logs',
                     content: this.logsView
-                }
-                // {
-                //     tab: 'Report',
-                //     content: this.reportView
-                // },
-                // {
-                //     tab: 'New Data Objects',
-                //     content: this.newDataView
-                // }
-                ]
+                }]
             });
             this.$elem.append($tabDiv);
         },
 
         updateView: function () {
             // Update status panel (always)
-            this.view.statusPanel.remove();
+            if (this.view.statusPanel) {
+                this.view.statusPanel.remove();
+            }
             this.view.statusPanel = this.updateJobStatusPanel();
             this.view.body.append($(this.view.statusPanel));
 
@@ -273,7 +235,6 @@ define([
                     this.showNewObjects();
                 }
             }
-
         },
 
         showNewObjects: function () {
@@ -453,22 +414,31 @@ define([
         },
 
         getCellState: function () {
-            var metadata = this.cell.metadata;
-            if (metadata.kbase && metadata.kbase.state) {
-                return metadata.kbase.state;
-            } else {
-                return null;
-            }
+            var metadata = this.cell.metadata.kbase;
+            // NB: we need to check the jobId property because metadata.kbase is 
+            // created when the cell is inserted.
+            if (metadata && metadata.jobId) {
+                this.state = metadata.state;
+                this.jobId = metadata.jobId;
+                this.appInfo = metadata.appInfo;
+                this.outputWidgetInfo = metadata.outputWidgetInfo;
+                return true;
+            } 
+            return false;
         },
 
         setCellState: function () {
             var metadata = this.cell.metadata;
             metadata.kbase = {
-                type: 'output',
+                // we don't really have a cell type for this cell -- cell types are for dispatching
+                // to kbase cell extensions.
+                attributes: metadata.attributes,
+                type: 'job',
                 jobId: this.jobId,
-                state: this.state
+                state: this.state,
+                appInfo: this.appInfo,
+                outputWidgetInfo: this.outputWidgetInfo
             };
-            // console.log('setting cell metadata', metadata, JSON.parse(JSON.stringify(metadata)));
             this.cell.metadata = JSON.parse(JSON.stringify(metadata));
         },
 
@@ -521,6 +491,8 @@ define([
             var jobState = this.state;
             var alert;
 
+            this.tabController.removeTab('Logs');
+
             if (jobState === null) {
                 alert = ui.buildAlert({
                     type: 'warning',
@@ -533,33 +505,90 @@ define([
             } else {
                 switch (jobState.job_state) {
                 case 'queued':
+                    alert = ui.buildAlert({
+                        type: 'warning',
+                        content: div([
+                            p([
+                                'This job is being viewed from a copy of the Narrative which created it.'
+                            ]),
+                            p([
+                                'Since this job was queued when the Narrative was copied, and a job is only available to the Narrative which created it, ',
+                                'neither the job logs nor the final data products will be available.'
+                            ]),
+                            p([
+                                'If you wish to access the original job logs or data products, see the original Narrative.'
+                            ]),
+                            p([
+                                'You may delete this cell and repeat the process which created it.'
+                            ])
+                        ])
+                    });
+                    break;
                 case 'in-progress':
                     alert = ui.buildAlert({
                         type: 'warning',
                         content: div([
                             p([
-                                'The job associated with this Cell can no longer be accessed, and was saved while running.'
+                                'This job is being viewed from a copy of the Narrative which created it.'
                             ]),
                             p([
-                                'This can happen when a Narrative has been copied while a Job Cell is running.', 
-                                'Since the new Narrative does not have access to the job in the original Narrative, it cannot ',
-                                'show additional information about it, nor will the data object created appear in the ',
-                                'new narrative.'
+                                'Since this job was running when the Narrative was copied, and a job is only available to the Narrative which created it, ',
+                                'neither the job logs nor the final data products will be available.'
+                            ]),
+                            p([
+                                'If you wish to access the original job logs or data products, see the original Narrative.'
+                            ]),
+                            p([
+                                'You may delete this cell and repeat the process which created it.'
                             ])
                         ])
                     });
                     break;
                 case 'completed':
+                    alert = ui.buildAlert({
+                        type: 'warning',
+                        content: div([
+                            p([
+                                'This job is being viewed from a copy of the Narrative which created it.'
+                            ]),
+                            p([
+                                'Since a job is only available to the Narrative which created it, ',
+                                'the job logs are not available. '
+                            ]),
+                            p([
+                                'If you wish to access the original job logs, see the original Narrative.'
+                            ])
+                        ])
+                    });
+                    break;
                 case 'canceled':
+                    alert = ui.buildAlert({
+                        type: 'warning',
+                        content: div([
+                            p([
+                                'This job is being viewed from a copy of the Narrative which created it.'
+                            ]),
+                            p([
+                                'Since a job is only available to the Narrative which created it, ',
+                                'the job logs are not available. '
+                            ]),
+                            p([
+                                'If you wish to access the original job logs, see the original Narrative.'
+                            ])
+                        ])
+                    });
+                    break;
                 case 'suspend':
                     alert = ui.buildAlert({
                         type: 'warning',
                         content: div([
                             p([
-                                'The job associated with this Cell can no longer be accessed.', jobState.job_state
+                                'This job is being viewed from a copy of the Narrative which created it.'
                             ]),
                             p([
-                                'You can access the final job state, but not the job logs.'
+                                'Since a job is only available to the Narrative which created it, ',
+                                'the job logs are not available. ', 
+                                'If you wish to access the original job logs, see the original Narrative.'
                             ])
                         ])
                     });
@@ -622,7 +651,6 @@ define([
                 info.execRunTime = TimeFormat.calcTimeDifference(this.state.finish_time, this.state.exec_start_time);
             }
 
-            console.log('updating job status panel', this.state);
             return $(this.statusTableTmpl(info));
         },
 
@@ -714,7 +742,6 @@ define([
             this.logsView.find('#kblog-panel').empty();
             var firstLine = logs.first;
             for (var i = 0; i < logs.lines.length; i++) {
-                // logs.lines[i].line = logs.lines[i].line.trim().replace('\n', '');
                 this.logsView.find('#kblog-panel').append($(this.logLineTmpl({ lineNum: (firstLine + i + 1), log: logs.lines[i] })));
             }
             this.maxLogLine = logs.maxLines;
@@ -729,8 +756,6 @@ define([
                     this.looper = setTimeout(function () { this.sendLogRequest('latest', true); }.bind(this), 2000);
                 }
             }
-            // var lastPos = this.logsView.find('#kblog-panel').children().last().
-            // this.logsView.find('#kblog-panel').children().last().scrollTop=0;
         }
     });
 });
