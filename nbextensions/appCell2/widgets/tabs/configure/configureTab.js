@@ -9,8 +9,6 @@ define([
 ) {
     'use strict';
 
-    
-
     function factory(config) {
         var container,
             widget,
@@ -19,7 +17,6 @@ define([
             fsm = config.fsm,
             parameters = config.parameters,
             workspaceInfo = config.workspaceInfo;
-
 
         function loadParamsWidget(arg) {
             // TODO: widget should make own bus.
@@ -31,8 +28,6 @@ define([
                     workspaceInfo: workspaceInfo,
                     initialParams: model.getItem('params')
                 });
-
-            console.log('loading parms widget...', bus, bus.channelName);
 
             bus.on('sync-params', function (message) {
                 message.parameters.forEach(function (paramId) {
@@ -90,8 +85,6 @@ define([
 
             bus.on('parameter-changed', function (message) {
                 // TODO: should never get these in the following states....
-                console.log('parameter changed?', message); 
-
                 var state = fsm.getCurrentState().state;
                 if (state.mode === 'editing') {
                     model.setItem(['params', message.parameter], message.newValue);
