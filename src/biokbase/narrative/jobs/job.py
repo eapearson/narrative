@@ -209,7 +209,7 @@ class Job(object):
         False if its running/queued.
         """
         status = self.status()
-        return status.lower() in ['completed', 'error', 'suspend', 'cancelled']
+        return status.lower() in ['completed', 'error', 'suspend', 'canceled']
 
     def __repr__(self):
         return u"KBase Narrative Job - " + unicode(self.job_id)
@@ -219,7 +219,7 @@ class Job(object):
         element.html("<div id='{{elem_id}}' class='kb-vis-area'></div>");
 
         require(['jquery', 'kbaseNarrativeJobStatus'], function($, KBaseNarrativeJobStatus) {
-            var w = new KBaseNarrativeJobStatus($('#{{elem_id}}'), {'jobId': '{{job_id}}', 'state': {{state}}, 'info': {{info}}, 'outputWidgetInfo': {{output_widget_info}}});
+            new KBaseNarrativeJobStatus($('#{{elem_id}}'), {'jobId': '{{job_id}}', 'state': {{state}}, 'info': {{info}}, 'outputWidgetInfo': {{output_widget_info}}});
         });
         """
         output_widget_info = None
@@ -247,6 +247,6 @@ class Job(object):
             }
         return Template(tmpl).render(job_id=self.job_id,
                                      elem_id='kb-job-{}-{}'.format(self.job_id, uuid.uuid4()),
-                                     state=json.dumps(state),
+                                     # state=json.dumps(state),
                                      info=json.dumps(info),
                                      output_widget_info=json.dumps(output_widget_info))
