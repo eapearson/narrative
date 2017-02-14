@@ -35,7 +35,7 @@ class JobManager(object):
     __instance = None
 
     # keys = job_id, values = { refresh = T/F, job = Job object }
-    _running_jobs = dict()
+    _all_jobs = dict()
     # keys = job_id, values = state from either Job object or NJS (these are identical)
     _completed_job_states = dict()
 
@@ -110,11 +110,11 @@ class JobManager(object):
                                          run_id=job_meta.get('run_id', None))
 
                     # Note that when jobs for this narrative are initially loaded,
-                    # they are set to not be refreshed. Rather, if a client requests
-                    # updates via the start_job_update message, the refresh flag will
-                    # be set to True.
-                    self._running_jobs[job_id] = {
-                        'refresh': 0,
+                    # they are set to have no active update notifications. Rather, if a client requests
+                    # updates via the start_job_update message, the notify count will be 
+                    # incremented.
+                    self._all_jobs[job_id] = {
+                        'listeners': 0,
                         'job': job
                     }
                 elif job_id in job_check_error:
@@ -173,7 +173,7 @@ class JobManager(object):
             if self._lookup_timer is not None:
                 self._lookup_timer.cancel()
             self._running_lookup_loop = True
-            self._lookup_job_status_loop()
+            self._start_job_status_loop()
         else:
             self._lookup_all_job_status()
 
@@ -183,8 +183,8 @@ class JobManager(object):
         """
         try:
             status_set = list()
-            for job_id in self._running_jobs:
-                job = self._running_jobs[job_id]['job']
+            for job_id in self._all_jobs:
+                job = self._all_jobs[job_id]['job']
                 job_state = self._get_job_state(job_id)
                 job_state['app_id'] = job.app_id
                 job_state['owner'] = job.owner
@@ -243,7 +243,7 @@ class JobManager(object):
         """
         A convenience method for fetching an unordered list of all running Jobs.
         """
-        return [j['job'] for j in self._running_jobs.values()]
+        return [j['job'] for j in self._all_jobs.values()]
 
     def _construct_job_status(self, job, state):
         """
@@ -372,23 +372,24 @@ class JobManager(object):
                     'source': getattr(new_e, "source", "JobManager")
                 }
 
-        if 'canceling' in self._running_jobs[job.job_id]:
+        if 'canceling' in self._all_jobs[job.job_id]:
             state['job_state'] = 'canceling'
 
         return {'state': state,
                 'spec': app_spec,
                 'widget_info': widget_info,
                 'owner': job.owner,
-                'listener_count': self._running_jobs[job.job_id]['refresh']}
+                'listener_count': self._all_jobs[job.job_id]['listeners']}
 
     def _construct_job_status_set(self, job_ids):
-        job_states = self._get_all_job_states(job_ids)
+        # First, fetch the job state for all 
+        job_states = self._get_job_states(job_ids)
 
         status_set = dict()
         for job_id in job_ids:
             job = None
-            if job_id in self._running_jobs:
-                job = self._running_jobs[job_id]['job']
+            if job_id in self._all_jobs:
+                job = self._all_jobs[job_id]['job']
             status_set[job_id] = self._construct_job_status(job, job_states.get(job_id, None))
         return status_set
 
@@ -397,28 +398,57 @@ class JobManager(object):
         Will raise a ValueError if job_id doesn't exist.
         Sends the status over the comm channel as the usual job_status message.
         """
-        job = self._running_jobs.get(job_id, {}).get('job', None)
+        job = self._all_jobs.get(job_id, {}).get('job', None)
         state = self._get_job_state(job_id)
         status = self._construct_job_status(job, state)
         self._send_comm_message('job_status', status)
 
-    def _lookup_all_job_status(self, ignore_refresh_flag=False):
+    def _refresh_all_job_status(self, ignore_refresh_flag=False):
         """
-        Looks up status for all jobs.
+        Looks up status for all jobs which are not finalized.
+        Note that there is no further job state change after a job reaches
+        final state.
         Once job info is acquired, it gets pushed to the front end over the
         'KBaseJobs' channel.
         """
         jobs_to_lookup = list()
+        job_ids_to_lookup = list()
         # grab the list of running job ids, so we don't run into update-while-iterating problems.
-        for job_id in self._running_jobs.keys():
-            if self._running_jobs[job_id]['refresh'] > 0 or ignore_refresh_flag:
-                jobs_to_lookup.append(job_id)
+        for job_id in self._all_jobs.keys():
+            job = self._all_jobs[job_id]['job']
+            if job.is_finished() == False:
+                job_ids_to_lookup.append(job_id)
+                jobs_to_lookup.append(job)
 
-        if len(jobs_to_lookup) > 0:
-            status_set = self._construct_job_status_set(jobs_to_lookup)
+        refresh_job_states = self._get_job_states(job_ids_to_lookup)
+
+        # TODO: handle any errors encountered looking up jobs.
+        # for now, they will simply not be updated.
+
+        return jobs_to_lookup
+
+    def _notify_job_listeners(self, ignore_refresh_flag=False):
+        """
+        Looks up status for all jobs which are not finalized.
+        Note that there is no further job state change after a job reaches
+        final state.
+        Once job info is acquired, it gets pushed to the front end over the
+        'KBaseJobs' channel.
+        """
+        jobs_to_notify = list()
+        # grab the list of running job ids, so we don't run into update-while-iterating problems.
+        for job_id in self._all_jobs.keys():
+            # Always lookup job if the ignore flag was passed
+            if ignore_refresh_flag:
+                jobs_to_notify.append(job_id)
+            elif self._all_jobs[job_id]['listeners'] > 0:
+                jobs_to_notify.append(job_id)
+
+        if len(jobs_to_notify) > 0:
+            status_set = self._construct_job_status_set(jobs_to_notify)
             self._send_comm_message('job_status_all', status_set)
 
-        return len(jobs_to_lookup)
+        return jobs_to_notify
 
     def _start_job_status_loop(self):
         kblogging.log_event(self._log, 'starting job status loop', {})
@@ -431,9 +461,22 @@ class JobManager(object):
         second loop to update things.
         """
 
-        refreshing_jobs = self._lookup_all_job_status()
-        # Automatically stop when there are no more jobs requesting a refresh.
-        if refreshing_jobs == 0:
+        # First ensure that all jobs are up-to-date.
+        refreshed_jobs = self._refresh_all_job_status()
+
+        # Then send job state out to the listening service, i.e. front end.
+        notified_jobs = self._notify_job_listeners()
+
+        self._send_comm_message('debug', {
+            'message': 'lookup job status loop',
+            'refreshed': map(lambda job: job.state(), refreshed_jobs),
+            'notified': notified_jobs})
+
+        # Automatically stop when there are no more jobs needing an update, i.e. 
+        # they are all finished.
+        if len(refreshed_jobs) == 0 and len(notified_jobs) == 0:
+            self._send_comm_message('debug', {
+                'message': 'lookup job status loop cancelling loop'})
             self.cancel_job_lookup_loop()
         else:
             self._lookup_timer = threading.Timer(10, self._lookup_job_status_loop)
@@ -459,7 +502,7 @@ class JobManager(object):
         job : biokbase.narrative.jobs.job.Job object
             The new Job that was started.
         """
-        self._running_jobs[job.job_id] = {'job': job, 'refresh': 0}
+        self._all_jobs[job.job_id] = {'job': job, 'listeners': 0}
         # push it forward! create a new_job message.
         self._lookup_job_status(job.job_id)
         self._send_comm_message('new_job', {
@@ -471,8 +514,8 @@ class JobManager(object):
         Returns a Job with the given job_id.
         Raises a ValueError if not found.
         """
-        if job_id in self._running_jobs:
-            return self._running_jobs[job_id]['job']
+        if job_id in self._all_jobs:
+            return self._all_jobs[job_id]['job']
         else:
             raise ValueError('No job present with id {}'.format(job_id))
 
@@ -504,7 +547,7 @@ class JobManager(object):
         if 'request_type' in msg['content']['data']:
             r_type = msg['content']['data']['request_type']
             job_id = msg['content']['data'].get('job_id', None)
-            if job_id is not None and job_id not in self._running_jobs:
+            if job_id is not None and job_id not in self._all_jobs:
                 # If it's not a real job, just silently ignore the request.
                 # Maybe return an error? Yeah. Let's do that.
                 # self._send_comm_message('job_comm_error', {'job_id': job_id, 'message': 'Unknown job id', 'request_type': r_type})
@@ -528,12 +571,12 @@ class JobManager(object):
 
             elif r_type == 'stop_job_update':
                 if job_id is not None:
-                    if self._running_jobs[job_id]['refresh'] > 0:
-                        self._running_jobs[job_id]['refresh'] -= 1
+                    if self._all_jobs[job_id]['listeners'] > 0:
+                        self._all_jobs[job_id]['listeners'] -= 1
 
             elif r_type == 'start_job_update':
                 if job_id is not None:
-                    self._running_jobs[job_id]['refresh'] += 1
+                    self._all_jobs[job_id]['listeners'] += 1
                     self._start_job_status_loop()
 
             elif r_type == 'delete_job':
@@ -610,7 +653,7 @@ class JobManager(object):
         """
         if job_id is None:
             raise ValueError('Job id required for deletion!')
-        if job_id not in self._running_jobs:
+        if job_id not in self._all_jobs:
             self._send_comm_message('job_does_not_exist', {'job_id': job_id, 'source': 'delete_job'})
             return
             # raise ValueError('Attempting to cancel a Job that does not exist!')
@@ -625,7 +668,7 @@ class JobManager(object):
         except Exception:
             raise
 
-        del self._running_jobs[job_id]
+        del self._all_jobs[job_id]
         if job_id in self._completed_job_states:
             del self._completed_job_states[job_id]
         self._send_comm_message('job_deleted', {'job_id': job_id})
@@ -639,7 +682,7 @@ class JobManager(object):
 
         if job_id is None:
             raise ValueError('Job id required for cancellation!')
-        if job_id not in self._running_jobs:
+        if job_id not in self._all_jobs:
             self._send_comm_message('job_does_not_exist', {'job_id': job_id, 'source': 'cancel_job'})
             return
 
@@ -653,9 +696,9 @@ class JobManager(object):
 
         # Stop updating the job status while we try to cancel.
         # Also, set it to have a special state of 'canceling' while we're doing the cancel
-        is_refreshing = self._running_jobs[job_id].get('refresh', 0)
-        self._running_jobs[job_id]['refresh'] = 0
-        self._running_jobs[job_id]['canceling'] = True
+        listeners = self._all_jobs[job_id].get('listeners', 0)
+        self._all_jobs[job_id]['listeners'] = 0
+        self._all_jobs[job_id]['canceling'] = True
         try:
             clients.get('job_service').cancel_job({'job_id': job_id})
         except Exception as e:
@@ -672,8 +715,8 @@ class JobManager(object):
             self._send_comm_message('job_comm_error', error)
             raise(e)
         finally:
-            self._running_jobs[job_id]['refresh'] = is_refreshing
-            del self._running_jobs[job_id]['canceling']
+            self._all_jobs[job_id]['listeners'] = listeners
+            del self._all_jobs[job_id]['canceling']
 
         # Rather than a separate message, how about triggering a job-status message:
         self._lookup_job_status(job_id)
@@ -692,15 +735,15 @@ class JobManager(object):
             self._comm.on_msg(self._handle_comm_message)
         self._comm.send(msg)
 
-    def _get_all_job_states(self, job_ids=None):
+    def _get_job_states(self, job_ids=None):
         """
-        Returns the state for all running jobs
+        Returns the state for all running jobs with non-terminal states
         """
         # 1. Get list of ids
         if job_ids is None:
-            job_ids = self._running_jobs.keys()
+            job_ids = self._all_jobs.keys()
         # 1.5 Go through job ids and remove ones that aren't found.
-        job_ids = [j for j in job_ids if j in self._running_jobs]
+        job_ids = [j for j in job_ids if j in self._all_jobs]
         # 2. Foreach, check if in completed cache. If so, grab the status. If not, enqueue id
         # for batch lookup.
         job_states = dict()
@@ -714,7 +757,7 @@ class JobManager(object):
         try:
             fetched_states = clients.get('job_service').check_jobs({'job_ids': jobs_to_lookup})
         except Exception as e:
-            kblogging.log_event(self._log, 'get_all_job_states_error', {'err': str(e)})
+            kblogging.log_event(self._log, 'get_job_states_error', {'err': str(e)})
             return {}
 
         error_states = fetched_states.get('check_errors', {})
@@ -722,9 +765,10 @@ class JobManager(object):
         for job_id in jobs_to_lookup:
             if job_id in fetched_states:
                 state = fetched_states[job_id]
-                state['cell_id'] = self._running_jobs[job_id]['job'].cell_id
-                state['run_id'] = self._running_jobs[job_id]['job'].run_id
-                if state.get('finished', 0) == 1:
+                job = self._all_jobs[job_id]['job']
+                state['cell_id'] = job.cell_id
+                state['run_id'] = job.run_id
+                if job.is_finished():
                     self._completed_job_states[state['job_id']] = dict(state)
                 job_states[state['job_id']] = state
             elif job_id in error_states:
@@ -734,11 +778,13 @@ class JobManager(object):
         return job_states
 
     def _get_job_state(self, job_id):
-        if job_id is None or job_id not in self._running_jobs:
+        if job_id is None or job_id not in self._all_jobs:
             raise ValueError('job_id {} not found'.format(job_id))
         if job_id in self._completed_job_states:
             return dict(self._completed_job_states[job_id])
-        state = self._running_jobs[job_id]['job'].state()
-        if state.get('finished', 0) == 1:
+        state = self._all_jobs[job_id]['job'].state()
+        job = self._all_jobs[job_id]['job']
+        # if state.get('finished', 0) == 1:
+        if job.is_finished():
             self._completed_job_states[job_id] = dict(state)
         return dict(state)
