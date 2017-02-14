@@ -189,7 +189,7 @@ define([
                 function stop() {
                     return Promise.try(function () {
                         if (widget) {
-                            widget.bus.connection.stop();
+                            // widget.bus.connection.stop();
                             return widget.instance.stop();
                         }
                     });
@@ -1649,15 +1649,27 @@ define([
             });
         }
 
+        /*
+            Called when a "job-does-not-exist" message is receive.
+            Common use case is a copied Narrative.
+            Less common would be that a job has actually disappeared, e.g. an error with awe, njs, etc.
+            We try to patch up the app cell according to the most recently known job state.
+            queued, running = reset the cell and remove.
+            completed = show results, show the "frozen status" widget, which only shows the most recent job state
+            error = show error, show the "frozen status" widget, which only shows the most recent job state
+            canceled = show the frozen status widget, which only shows the most recent job state
+        */
         function handleJobDoesNotExist(message) {
             // issue warning alert
             var notification = div({}, [
                 p('The app cell has been automatically Reset -- the original job is no longer accessible'),
                 p([
-                    'An app cell\'s previously run jobs are associated with the Narrative within which it was run. ',
-                    'No other Narrative may access information about those jobs.', 
-                    'When a Narrative is copied, any existing jobs will not be associated with the new Narrative created ',
-                    'by the copy.'
+                    'An app cell\'s previously run jobs are associated with the Narrative within which it was originally run. ',
+                    'No other Narrative may access information about those jobs, even when the Narrative is a copy.'
+                ]),
+                p([
+                    'When a Narrative is copied, it\'s existing jobs will not be associated with the copy, and associated ', 
+                    'app cells will be reset. '
                 ])
                 // p('The job id was ' + message.jobId)
             ]);
@@ -1665,6 +1677,10 @@ define([
                 message: notification,
                 type: 'warning'
             });
+
+            // Remove any exec status message.
+            ui.setContent('run-control-panel.status.execMessage', '');
+
             // reset the app cell.
             resetToEditMode();
         }
