@@ -123,6 +123,10 @@ define([
             this.initializeView();
             this.updateView();
 
+            //The job has not started yet. When it has started running, the log will be displayed in this area.
+
+            this.showLogMessage('Loading the log viewer...');
+
             Semaphore.make().when('comm', 'ready', Config.get('comm_wait_timeout'))
                 .then(function () {
                     this.busConnection.listen({
@@ -161,7 +165,7 @@ define([
                         }.bind(this)
                     });
 
-                    this.channel.emit('request-job-update', {
+                    this.channel.emit('request-job-status', {
                         jobId: this.jobId
                     });
                 }.bind(this))
@@ -437,9 +441,13 @@ define([
             case 'canceled':
             case 'suspend':
             case 'completed':
-                this.channel.emit('request-job-completion', {
-                    jobId: this.jobId
-                });
+                this.showLogMessage('');
+                if (this.requestedUpdates) {
+                    this.requestedUpdates = false;
+                    this.channel.emit('request-job-completion', {
+                        jobId: this.jobId
+                    });
+                }
                 this.logView.find('#kblog-play').prop('disabled', true);
                 if (this.firstTime) {
                     this.logView.find('#kblog-bottom').trigger('click');
@@ -451,10 +459,22 @@ define([
                 // this.busConnection.stop();
                 break;
             case 'queued':
-                this.logView.find('#kblog-panel').html('<p>The job is queued. When it has started running, the log will be displayed in this area.</p>');
+                this.showLogMessage('<p>The job is queued. When it has started running, the log will be displayed below.</p>');
+                if (this.firstTime) {
+                    this.logView.find('#kblog-play').trigger('click');
+                }
+                this.requestedUpdates = true;
+                this.channel.emit('request-job-status', {
+                    jobId: this.jobId
+                });
                 break;
             case 'in-progress':
                 // If the user has not used the navigation yet, should go into "play" mode;
+                this.showLogMessage('');
+                this.requestedUpdates = true;
+                this.channel.emit('request-job-status', {
+                    jobId: this.jobId
+                });
                 if (this.firstTime) {
                     this.logView.find('#kblog-play').trigger('click');
                 }
@@ -638,8 +658,6 @@ define([
                 this.currentLogStart = (this.currentLogStart + this.currentLogLength) - Math.min(this.currentLogLength, this.maxLogLines);
             }
 
-            console.log('log', log, this.currentLogLines, this.currentLogLength, this.currentLogStart);
-
             this.currentLogLines.forEach(function (line, index) {
                 this.logView.find('#kblog-panel').append($(this.logLineTmpl({
                     lineNum: (this.currentLogStart + index + 1),
@@ -649,7 +667,6 @@ define([
 
             this.logView.find('#kblog-spinner').hide();
             if (this.doLogLoop) {
-                console.log('looping', new Date());
                 // don't bother looping if we're complete.
                 if (this.state.job_state === 'suspend' || this.state.job_state === 'completed' || this.state.job_state === 'canceled') {
                     this.logView.find('#kblog-stop').click();
