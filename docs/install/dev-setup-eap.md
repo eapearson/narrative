@@ -1,4 +1,23 @@
 
+
+## NON DOCKER HERE
+
+
+```
+apt-get install python-pip
+pip install virtualenv --upgrade
+apt-get install python-scipy
+cd /vagrant/narrative
+virtualenv venvs/v
+source venvs/v/bin/activate
+./scripts/install_narrative.sh
+kbase-narrative --no-browser
+```
+
+Now modify the nginx config to point tho
+
+## DOCKER BELOW
+
 ## Deploying with Docker
 
 This document schedules how to deploy the Narrative on a developer workstation in a Vagrant-managed virtual machine, using Docker provisioning.
@@ -20,17 +39,14 @@ This document describes the manual procedures for creating a VM with the prerequ
 
 ## Install VM and OS
 
+
+### NEW - See kbase-ui/docs/auth2/development.md
+
+It is much easier to develop on the Narrative in partnership with the ui. The ui will handle the auth interactions, and the ui instructions also provide for setting up a fully proxied ci environment.
+
 ### Install VM with Vagrant
 
-After installing Vagrant and Virtualbox, run  
-
-    vagrant init ubuntu/trusty64
-
-This will create the base Vagrantfile set up to install Ubuntu Trusty (14.04). 
-
-On top of this configuration we need to tweak the VM to utilize more memory (for building the Narrative later) and developer-friendly network interface.
-
-Please the following towards the end of the Vagrantfile, before the final "end".
+Although the kbase-ui setup will have covered the Vagrant configuration and startup, ensure that the seetings below are represented:
 
 ```
 config.vm.provider "virtualbox" do |v|  
@@ -42,40 +58,13 @@ end
 config.vm.network "private_network", type: "dhcp"
 ```
 
-Once you’re done editing, save your work and start Vagrant:
-
-    vagrant up
-    vagrant ssh
-
 ### Install primary OS dependencies
 
-
-During the OS configuration, it is easiest just to move into superuser mode:
-
-    sudo su
-
-Get the system updated and select repositories for more up to date versions of primary dependencies (nginx, nodejs):
+The kbase-ui setup will have prepared the system and included nginx support, but we need a bit more for the Narrative:
 
 ```
-    apt-get update
-    apt-get upgrade -y
-    apt-get dist-upgrade -y
-    apt-get autoremove -y
-    apt-get install -y python-software-properties
-    add-apt-repository ppa:nginx/stable
-    apt-get install -y git nginx-extras
+    apt-get install git python-dev -y
 ```
-
-> NB the system update first may be necessary. I've encountered source repos
-go missing in old distros (vagrant boxes) before apt-get update
-
-### Install and set up nodejs
-
-https://github.com/nodesource/distributions
-
-    curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash -
-    apt-get install -y nodejs
-
 
 ### Install and set up Docker
 
@@ -85,16 +74,22 @@ The [Docker installation page for Ubuntu](https://www.docker.com/products/docker
 
 The instructions, condensed from the ubuntu installation page:
 
-https://docs.docker.com/engine/installation/linux/ubuntulinux/
+https://docs.docker.com/engine/installation/linux/docker-ce/ubuntu
 
-    apt-get install -y linux-image-extra-$(uname -r) linux-image-extra-virtual 
-    apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
-    echo "deb https://apt.dockerproject.org/repo ubuntu-trusty main" > /etc/apt/sources.list.d/docker.list 
-    apt-get update
-    apt-get -y install docker-engine
-    usermod -G docker www-data
-    service docker start
-    docker run hello-world
+```
+apt-get remove docker docker-engine docker.io
+apt-get update
+apt-get install linux-image-extra-$(uname -r) linux-image-extra-virtual
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+add-apt-repository \
+   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+   $(lsb_release -cs) \
+   stable"
+apt-get update
+apt-get install docker-ce
+docker run hello-world
+```
+
 
 This accomplishes the following:
 
@@ -102,28 +97,6 @@ This accomplishes the following:
 - Install the keys and Docker package repository
 - Install docker
 - Add docker to the standard web-server group, so they can play nice with each other (so we can get proxied external access to the deployed containers that’ll be running the Narrative).  
-
-### Install npm and grunt
-
-One last step before getting Docker and the Narrative installed is the installation of a couple of Javascript packages. These are used by the build script to concatenate and minify the Narrative front end extensions to the IPython Notebook
-
-    npm install -g grunt-cli
-
-Okay, that is it for a while as superuser, go back to your mortal self, or rather the vagrant user.
-
-    exit
-
-## Set up the narrative
-
-You should be in the vagrant user directory, which is fine. We'll create a directory in which to work here. It will be named kb_narr just as a documentation convention -- the name does not matter.
-
-    mkdir kb_narr
-    cd kb_narr
-
-We'll be working with some branch of the narrative and kbase-ui repos. For development or testing work, this may be develop, staging, or master (in which case you can leave off the -b option).
-
-    git clone -b develop http://github.com/kbase/narrative
-    git clone -b develop http://github.com/kbase/kbase-ui
 
 
 ## Install the Lua dependencies.

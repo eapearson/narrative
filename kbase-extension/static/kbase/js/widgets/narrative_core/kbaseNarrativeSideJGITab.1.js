@@ -42,7 +42,7 @@ define([
 ) {
     'use strict';
     return KBWidget({
-        name: 'kbaseNarrativeSidePublicTab',
+        name: 'kbaseNarrativeSideJGITab',
         parent: kbaseAuthenticatedWidget,
         version: '1.0.0',
         options: {
@@ -73,6 +73,8 @@ define([
 
         init: function(options) {
             this._super(options);
+
+            console.log('initializing jgi side tab...');
 
             this.data_icons = Config.get('icons').data;
             this.icon_colors = Config.get('icons').colors;
@@ -400,6 +402,7 @@ define([
                             metadata: {
                                 'File Id': hit._id,
                                 'File Type': hit._source.file_type[0],
+                                'File Format': hit._source.metadata.file_format,
                                 'Project Id': hit._source.metadata.sequencing_project_id
                             }
                         });
